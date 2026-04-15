@@ -1,0 +1,42 @@
+# Build directories
+/build/
+/cmake-build-*/
+
+# CMake generated files
+/CMakeCache.txt
+/CMakeFiles/
+/cmake_install.cmake
+/compile_commands.json
+
+# Build outputs
+/bin/
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.so
+*.so.*
+*.dll
+*.dylib
+*.out
+
+# Logs and runtime leftovers
+*.log
+core
+core.*
+
+# Local configuration overrides
+*.local.conf
+*.secret.conf
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db

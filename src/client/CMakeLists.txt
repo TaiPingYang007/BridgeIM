@@ -1,7 +1,11 @@
-set(SRC_FILES main.cpp)
+set(CLIENT_SOURCES
+    main.cpp
+)
 
-#生成可执行文件
-add_executable(ChatClient ${SRC_FILES})
+find_package(Threads REQUIRED)
 
-#指定可执行文件以依赖的库文件
-target_link_libraries(ChatClient pthread)
+add_executable(ChatClient ${CLIENT_SOURCES})
+
+target_link_libraries(ChatClient PRIVATE
+    Threads::Threads
+)

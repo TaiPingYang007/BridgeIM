@@ -1,5 +1,6 @@
-# Build directories
+# Build outputs
 /build/
+/bin/
 /cmake-build-*/
 
 # CMake generated files
@@ -8,27 +9,19 @@
 /cmake_install.cmake
 /compile_commands.json
 
-# Build outputs
-/bin/
+# Object and library files
 *.o
 *.obj
-*.lo
-*.la
 *.a
 *.so
 *.so.*
-*.dll
 *.dylib
-*.out
+*.dll
 
-# Logs and runtime leftovers
+# Logs and crash dumps
 *.log
 core
 core.*
-
-# Local configuration overrides
-*.local.conf
-*.secret.conf
 
 # Editor / IDE
 .vscode/

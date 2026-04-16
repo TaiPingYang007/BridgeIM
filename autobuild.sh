@@ -1,18 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# 确保脚本发生错误时立刻退出
-set -e
+set -euo pipefail
 
-echo "[1/4] Preparing directories..."
-mkdir -p build
-mkdir -p bin
-rm -rf build/*
-rm -f compile_commands.json
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="${SCRIPT_DIR}/build"
+BIN_DIR="${SCRIPT_DIR}/bin"
 
-echo "[2/4] Initializing CMake..."
-cd build && cmake ..
+printf '[1/4] Cleaning old build artifacts...\n'
+rm -rf "${BUILD_DIR}" "${BIN_DIR}"
 
-echo "[3/4] Compiling source code (Make)..."
-make -j4
+printf '[2/4] Configuring CMake...\n'
+cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}"
 
-echo "[4/4] Build complete! Executables are in the bin/ directory."
+printf '[3/4] Building BridgeIM...\n'
+cmake --build "${BUILD_DIR}" -j"$(nproc)"
+
+printf '[4/4] Done. Executables are under %s\n' "${BIN_DIR}"

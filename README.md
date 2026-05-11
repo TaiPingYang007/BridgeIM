@@ -1,232 +1,375 @@
-# C++ 集群聊天服务器
+# BridgeIM
 
-> 基于 Muduo + Redis + Nginx 的高并发分布式即时通讯系统
-
----
+> 基于 Muduo + Redis + Nginx 的 Docker-first IM 升级项目（当前以原 ChatServer 工作树为起点）
 
 ## 项目简介
 
-本项目是一个从零开发的**高并发、可横向扩展**的即时聊天后端服务。核心挑战在于：单台服务器连接数有上限，而分布式部署后，连接到不同节点的用户之间如何实时通信？
+这是一个支持多节点部署的即时通讯后端。当前仓库已经整理成 **Docker-only** 运行方式：
 
-**解决思路：**
+- `chatserver-1`：节点 1，监听 `6000`
+- `chatserver-2`：节点 2，监听 `6002`
+- `redis`：节点间消息总线
+- `nginx`：统一 TCP 入口，监听 `8000`
+- `client`：按需启动的交互式客户端容器
 
-```
-Client A          Client B
-   |                 |
-[ChatServer-1]   [ChatServer-2]
-   |                 |
-   +----> Redis <----+   ← 跨节点消息总线
-              |
-           MySQL        ← 离线消息 / 持久化存储
-```
+整体数据流：
 
-1. **Nginx TCP 负载均衡**：统一入口，将客户端连接轮询分发到各 ChatServer 节点
-2. **Redis Pub/Sub 消息总线**：A 在节点1，B 在节点2，消息经 Redis 频道中转，实现跨节点实时投递
-3. **三级路由策略**：本地连接直投 → Redis 跨节点转发 → MySQL 离线存储，零消息丢失
-
----
-
-## 技术栈
-
-| 层次 | 技术 | 说明 |
-|------|------|------|
-| 网络层 | Muduo | 多线程 Reactor 模型，基于 epoll 的事件驱动 |
-| 协议层 | nlohmann/json | 轻量 JSON 序列化，自定义应用层消息协议 |
-| 存储层 | MySQL | 用户信息、好友关系、群组、离线消息持久化 |
-| 消息中间件 | Redis (hiredis) | Pub/Sub 实现跨服节点实时消息路由 |
-| 负载均衡 | Nginx stream | 四层 TCP 负载均衡，对用户无感知 |
-| 构建 | CMake + Shell | 外部构建 + 一键编译脚本 |
-
----
-
-## 核心功能
-
-- **账号系统**：注册、登录、登出，防重复登录
-- **好友管理**：发送好友申请 → 对方实时收到请求 → 同意/拒绝
-- **群组管理**：创建群组、申请入群 → 群主审批 → 同意/拒绝
-- **即时消息**：单聊、群聊，在线实时投递，离线自动存储并在下次登录时推送
-- **跨节点通信**：连接在不同服务器节点的用户之间消息无缝互通
-
----
-
-## 关键设计细节
-
-### 1. 多线程安全的消息分发
-
-用户连接表 `_userConnMap` 由多个 IO 线程并发读写，采用 `std::mutex` 保护。群聊时先在锁内**快照**成员列表，再在锁外逐一发送，避免持锁期间 IO 阻塞造成锁竞争：
-
-```cpp
-// 锁内仅做快照，避免持锁 IO
-std::vector<int> memberIds;
-{
-    std::lock_guard<std::mutex> lock(_connMutex);
-    for (auto &member : members)
-        memberIds.push_back(member.getId());
-}
-// 锁外逐一投递
-for (int id : memberIds)
-    deliverMessage(id, payload);
+```text
+client -> nginx:8000 -> chatserver-1 / chatserver-2
+                        |             |
+                        +---- Redis ---+
+                              |
+                            MySQL
 ```
 
-### 2. Redis 跨节点路由
+## 当前运行方式
 
-每个用户登录时订阅以自己 `userid` 为名的 Redis 频道，退出时取消订阅。发送方将消息 `PUBLISH` 到目标用户的频道，接收方节点的订阅回调将消息写入对应 TCP 连接：
+本项目当前是 **Docker-first / Docker-only**：
 
-```
-发送方节点: PUBLISH <targetId> <message>
-接收方节点: subscribe回调 → 找到本地连接 → send()
-```
+- 不再维护 `./autobuild.sh` 本机构建入口
+- 构建、依赖安装、运行全部放在 Docker 内完成
+- 客户端也通过 Docker 启动
 
-### 3. 异步日志系统
+## 目录说明
 
-基于**无锁队列 + 独立日志线程**的异步日志，IO 线程仅入队不阻塞，日志线程消费队列写文件，避免磁盘 IO 拖慢业务处理：
-
-```
-IO线程: LOG_INFO(...) → 入队(无锁) → 立即返回
-日志线程: 出队 → 写文件
-```
-
----
-
-## 目录结构
-
-```
-ChatServer/
+```text
+04_BridgeIM/
+├── compose.yaml                    # 整套服务编排
+├── Dockerfile                      # 服务端 / 客户端镜像构建
+├── .env.example                    # 环境变量模板
+├── cmake/ProjectDependencies.cmake # CMake 依赖接入逻辑
+├── docker/
+│   ├── mysql/init/01-init-chatserver.sql
+│   ├── nginx/nginx.conf
+│   └── redis/redis.conf
+├── scripts/bootstrap-shared-mysql.sh
 ├── include/
-│   ├── public.hpp                  # 消息类型枚举（应用层协议）
-│   └── server/
-│       ├── chatservice.hpp         # 业务层核心类
-│       ├── chatserver.hpp          # 网络层：连接/消息回调
-│       ├── logger.h                # 异步日志
-│       ├── lockqueue.h             # 无锁队列（日志用）
-│       ├── redis/redis.hpp         # Redis Pub/Sub 封装
-│       ├── db/db.h                 # MySQL 连接封装
-│       └── model/                  # 数据模型层（ORM）
-├── src/
-│   ├── server/                     # 服务端实现
-│   └── client/                     # 命令行客户端实现
-├── bin/                            # 编译产物
-├── autobuild.sh                    # 一键构建脚本
-└── CMakeLists.txt
+└── src/
 ```
 
----
+## 依赖前提
 
-## 环境依赖
+你需要提前准备：
 
-| 依赖 | 版本要求 | 安装参考 |
-|------|---------|---------|
-| GCC/G++ | >= C++11 | `apt install g++` |
-| CMake | >= 3.10 | `apt install cmake` |
-| Muduo | 任意稳定版 | 源码编译安装 |
-| MySQL | >= 5.7 | `apt install libmysqlclient-dev` |
-| Redis + hiredis | 任意稳定版 | `apt install redis-server libhiredis-dev` |
-| Nginx | 需 stream 模块 | 源码编译：`--with-stream` |
+- Docker Engine
+- Docker Compose v2
+- 一个已经在宿主机运行的共享 MySQL 容器 `mysql_db`
 
----
+这个仓库 **不会** 在 `compose.yaml` 里再起一个新的 MySQL。
 
-## 快速开始
+## MySQL 约定
 
-### 编译
+当前项目采用：
+
+- 共享一个 MySQL 实例
+- 每个项目独立数据库
+- 每个项目独立用户
+- 每个项目独立权限
+
+本项目默认约定：
+
+- 数据库：`chatserver`
+- 用户：`chatserver_app`
+- 密码：`chatserver_dev_password`
+
+## Redis 约定
+
+Redis 由本项目自己的 compose 栈管理：
+
+- 容器内服务名：`redis`
+- 端口：`6379`
+- 默认密码：`redis_dev_password`
+
+## 环境变量
+
+先复制模板：
 
 ```bash
-git clone https://github.com/TaiPingYang007/ChatServer.git
-cd ChatServer
-chmod +x autobuild.sh
-./autobuild.sh
-# 产物：bin/ChatServer  bin/ChatClient
+cp .env.example .env
 ```
 
-### 数据库初始化
+默认内容如下：
 
-```sql
-CREATE DATABASE chat;
-USE chat;
+```env
+MYSQL_HOST=host.docker.internal
+MYSQL_PORT=3306
+MYSQL_DATABASE=chatserver
+MYSQL_USER=chatserver_app
+MYSQL_PASSWORD=chatserver_dev_password
 
-CREATE TABLE user (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    password VARCHAR(50) NOT NULL,
-    state ENUM('online','offline') DEFAULT 'offline'
-);
-
-CREATE TABLE friend (
-    userid INT NOT NULL,
-    friendid INT NOT NULL,
-    PRIMARY KEY(userid, friendid)
-);
-
-CREATE TABLE allgroup (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    groupname VARCHAR(50) NOT NULL UNIQUE,
-    groupdesc VARCHAR(200) DEFAULT ''
-);
-
-CREATE TABLE groupuser (
-    groupid INT NOT NULL,
-    userid INT NOT NULL,
-    grouprole ENUM('creator','normal') DEFAULT 'normal',
-    PRIMARY KEY(groupid, userid)
-);
-
-CREATE TABLE offlinemessage (
-    userid INT NOT NULL,
-    message VARCHAR(500) NOT NULL
-);
-
-CREATE TABLE friendrequest (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    fromid INT NOT NULL,
-    toid INT NOT NULL,
-    status ENUM('pending','accepted','rejected') DEFAULT 'pending'
-);
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=redis_dev_password
 ```
 
-### 配置 Nginx TCP 负载均衡
+说明：
 
-在 `nginx.conf` 中添加（`http {}` 块同级）：
+- `MYSQL_HOST=host.docker.internal` 表示服务端容器通过宿主机端口连接共享 `mysql_db`
+- `REDIS_HOST=redis` 表示服务端容器通过 compose 网络内服务名连接 Redis
 
-```nginx
-stream {
-    upstream ChatServer {
-        server 127.0.0.1:6000 weight=1;
-        server 127.0.0.1:6002 weight=1;
-    }
-    server {
-        listen 8000;
-        proxy_pass ChatServer;
-    }
-}
-```
+## 第一次运行
 
-### 启动集群
+### 1. 初始化共享 MySQL
+
+执行：
 
 ```bash
-# 终端1：节点1
-./bin/ChatServer 127.0.0.1 6000
-
-# 终端2：节点2
-./bin/ChatServer 127.0.0.1 6002
-
-# 启动 Nginx
-sudo /usr/local/nginx/sbin/nginx
-
-# 客户端连接（统一走 Nginx 网关）
-./bin/ChatClient 127.0.0.1 8000
+MYSQL_ROOT_PASSWORD=你的_mysql_root_密码 ./scripts/bootstrap-shared-mysql.sh
 ```
 
----
+这个脚本会：
 
-## 项目思考与收获
+- 创建数据库 `chatserver`
+- 创建用户 `chatserver_app`
+- 授权这个用户只访问 `chatserver`
+- 执行表结构初始化 SQL
 
-1. **为什么选 Muduo 而不是手写 epoll？** Muduo 封装了 Reactor 事件循环和线程池，让我可以聚焦业务逻辑，同时深入理解其内部的 Channel / EventLoop / TcpServer 分层设计。
+对应文件：
 
-2. **Redis Pub/Sub 的局限性**：消息不持久化，若订阅方节点崩溃会丢消息。生产级方案可引入 Redis Stream 或 Kafka 保证 at-least-once 投递。
+- [scripts/bootstrap-shared-mysql.sh](scripts/bootstrap-shared-mysql.sh)
+- [docker/mysql/init/01-init-chatserver.sql](docker/mysql/init/01-init-chatserver.sql)
 
-3. **连接断开的一致性**：客户端异常断开时需原子性地从 `_userConnMap` 中移除并将用户状态置为 offline，否则其他用户仍会向其投递消息导致异常。
+### 2. 如果你的网络环境要求 Docker 走代理
 
----
+如果你已经在 WSL 全局安装了这些命令，可以按需使用：
 
-## License
+```bash
+docker-proxy-on
+docker-proxy-status
+```
 
-MIT
+如果当前网络直连 Docker Hub 就够用，这一步可以跳过。
+
+### 3. 构建镜像
+
+```bash
+docker compose build
+```
+
+### 4. 启动服务端栈
+
+```bash
+docker compose up -d
+```
+
+### 5. 检查服务状态
+
+```bash
+docker compose ps
+```
+
+你应该看到：
+
+- `redis`：`healthy`
+- `chatserver-1`：`Up`
+- `chatserver-2`：`Up`
+- `nginx`：`Up`
+
+## 日常启动方式
+
+以后最常用的一套命令就是：
+
+```bash
+cd ~/projects/cpp_project/04_BridgeIM
+docker-proxy-on
+docker compose build
+docker compose up -d
+docker compose ps
+docker compose run --rm client
+```
+
+如果你只是重新启动服务，不改代码，也可以不重新 build：
+
+```bash
+docker compose up -d
+```
+
+如果你改了代码，建议重新 build 并强制重建容器：
+
+```bash
+docker compose build
+docker compose up -d --force-recreate
+```
+
+## 客户端运行方式
+
+### 标准方式：走集群入口
+
+```bash
+docker compose run --rm client
+```
+
+这个客户端默认连接：
+
+```text
+nginx:8000
+```
+
+### 直连某个节点
+
+直连节点 1：
+
+```bash
+docker compose run --rm --entrypoint ./bin/ChatClient client chatserver-1 6000
+```
+
+直连节点 2：
+
+```bash
+docker compose run --rm --entrypoint ./bin/ChatClient client chatserver-2 6002
+```
+
+## 端口说明
+
+- `8000`：Nginx 对外统一入口
+- `6000`：`chatserver-1`
+- `6002`：`chatserver-2`
+
+客户端默认应该优先走 `8000`。
+
+## 常用命令
+
+### 查看状态
+
+```bash
+docker compose ps
+docker ps
+docker images
+```
+
+### 查看日志
+
+```bash
+docker compose logs
+docker compose logs -f
+docker compose logs -f chatserver-1
+docker compose logs -f chatserver-2
+docker compose logs -f redis
+docker compose logs -f nginx
+```
+
+### 停止服务
+
+只停止：
+
+```bash
+docker compose stop
+```
+
+停止并删除当前项目容器和网络：
+
+```bash
+docker compose down
+```
+
+## 如何确认“集群真的在运行”
+
+### 配置层
+
+当前 `nginx` upstream 已经配置为：
+
+- `chatserver-1:6000`
+- `chatserver-2:6002`
+
+文件：
+
+- [docker/nginx/nginx.conf](docker/nginx/nginx.conf)
+
+### 运行层
+
+执行：
+
+```bash
+docker compose ps
+```
+
+如果四个服务都正常，说明集群栈已经起来了。
+
+### 业务层
+
+真正确认“集群生效”，建议：
+
+1. 开两个客户端
+2. 注册 / 登录两个不同用户
+3. 配合：
+
+```bash
+docker compose logs -f chatserver-1 chatserver-2
+```
+
+观察两个用户是否落到不同节点，以及消息是否能跨节点转发。
+
+## 已知现象与处理方法
+
+### 1. 登录提示 `this account is using`
+
+这通常不是客户端容器没删干净，而是：
+
+- MySQL 中用户的 `state` 还停留在 `online`
+
+可以手动清理：
+
+```bash
+docker exec -it mysql_db mysql -uchatserver_app -pchatserver_dev_password -D chatserver -e "UPDATE User SET state='offline' WHERE state='online'; SELECT id,name,state FROM User;"
+```
+
+### 2. 客户端想正常退出
+
+登录前主菜单直接输入：
+
+```text
+3
+```
+
+登录后更推荐先执行：
+
+```text
+loginout
+```
+
+### 3. 客户端卡住或无法退出
+
+在另一个终端里清理临时 client 容器：
+
+```bash
+ids=$(docker ps -aq --filter "name=chatserver-client-run")
+[ -n "$ids" ] && docker rm -f $ids
+```
+
+### 4. `docker compose` 提示 `no configuration file provided`
+
+说明你不在 `compose.yaml` 所在目录。  
+先进入：
+
+```bash
+cd ~/projects/cpp_project/04_BridgeIM
+```
+
+再执行 `docker compose ...`
+
+## 构建说明
+
+当前镜像构建时会：
+
+1. 安装系统依赖
+2. 拉取并编译 `muduo`
+3. 拉取 `nlohmann-json`
+4. 编译：
+   - `ChatServer`
+   - `ChatClient`
+
+所以第一次 build 较慢是正常的。
+
+## 总结
+
+现在这个项目的标准运行方式可以压缩成：
+
+```bash
+cd ~/projects/cpp_project/04_BridgeIM
+docker-proxy-on
+docker compose build
+docker compose up -d
+docker compose run --rm client
+```
+
+这就是以后你最常用的启动路径。

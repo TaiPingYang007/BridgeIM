@@ -1,35 +1,14 @@
-# Build outputs
-/build/
-/bin/
-/cmake-build-*/
-
-# CMake generated files
-/CMakeCache.txt
-/CMakeFiles/
-/cmake_install.cmake
-/compile_commands.json
-
-# Object and library files
-*.o
-*.obj
-*.a
-*.so
-*.so.*
-*.dylib
-*.dll
-
-# Logs and crash dumps
-*.log
-core
-core.*
-
-# Editor / IDE
+.cache
+.deps/
+.agents/
+.codex
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# OS junk
-.DS_Store
-Thumbs.db
+.env
+compile_commands.json
+build/
+bin/
+graphify-out/
+*.log
+*.o
+test/testjson/testjson

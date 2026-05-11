@@ -1,11 +1,9 @@
-set(CLIENT_SOURCES
-    main.cpp
-)
+set(SRC_FILES main.cpp)
 
-find_package(Threads REQUIRED)
+#生成可执行文件
+add_executable(ChatClient ${SRC_FILES})
 
-add_executable(ChatClient ${CLIENT_SOURCES})
-
+#指定可执行文件以依赖的库文件
 target_link_libraries(ChatClient PRIVATE
-    Threads::Threads
-)
+    nlohmann_json::nlohmann_json
+    Threads::Threads)

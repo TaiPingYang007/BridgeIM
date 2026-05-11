@@ -1,4 +1,5 @@
-set(SERVER_SOURCES
+set(
+    SRC_FILES
     main.cpp
     logger.cpp
     chatserver.cpp
@@ -13,9 +14,18 @@ set(SERVER_SOURCES
     redis/redis.cpp
 )
 
-find_package(Threads REQUIRED)
+# 生成可执行文件
+add_executable(ChatServer ${SRC_FILES})
 
-add_executable(ChatServer ${SERVER_SOURCES})
+find_library(CHATSERVER_MYSQLCLIENT_LIBRARY mysqlclient)
+if (NOT CHATSERVER_MYSQLCLIENT_LIBRARY)
+    message(FATAL_ERROR "mysqlclient library not found. Install default-libmysqlclient-dev.")
+endif()
+
+find_library(CHATSERVER_HIREDIS_LIBRARY hiredis)
+if (NOT CHATSERVER_HIREDIS_LIBRARY)
+    message(FATAL_ERROR "hiredis library not found. Install libhiredis-dev.")
+endif()
 
 target_include_directories(ChatServer PRIVATE
     ${CMAKE_SOURCE_DIR}/include
@@ -29,10 +39,13 @@ target_compile_definitions(ChatServer PRIVATE
     CHATSERVER_LOG_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
 )
 
-target_link_libraries(ChatServer PRIVATE
-    muduo_net
-    muduo_base
-    mysqlclient
-    hiredis
-    Threads::Threads
+set_target_properties(ChatServer PROPERTIES
+    BUILD_RPATH "${CHATSERVER_MUDUO_LIB_DIR}"
 )
+
+target_link_libraries(ChatServer PRIVATE
+    chatserver_muduo
+    nlohmann_json::nlohmann_json
+    ${CHATSERVER_MYSQLCLIENT_LIBRARY}
+    Threads::Threads
+    ${CHATSERVER_HIREDIS_LIBRARY})

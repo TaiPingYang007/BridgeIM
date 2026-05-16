@@ -1,26 +1,13 @@
-include(FetchContent)
-
-set(CHATSERVER_DEPS_DIR "${CMAKE_SOURCE_DIR}/.deps" CACHE PATH
-    "Directory used for locally managed third-party dependencies.")
-set(FETCHCONTENT_BASE_DIR "${CHATSERVER_DEPS_DIR}/fetchcontent" CACHE PATH
-    "Persistent cache for FetchContent dependencies.")
-
 if (NOT DEFINED MUDUO_ROOT OR MUDUO_ROOT STREQUAL "")
     if (DEFINED ENV{MUDUO_ROOT} AND NOT "$ENV{MUDUO_ROOT}" STREQUAL "")
         set(MUDUO_ROOT "$ENV{MUDUO_ROOT}" CACHE PATH "Muduo installation prefix.")
     else()
-        set(MUDUO_ROOT "${CHATSERVER_DEPS_DIR}/muduo/install" CACHE PATH
+        set(MUDUO_ROOT "/usr/local" CACHE PATH
             "Muduo installation prefix.")
     endif()
 endif()
 
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.11.3
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(nlohmann_json)
+find_package(nlohmann_json 3 REQUIRED)
 
 find_path(CHATSERVER_MUDUO_INCLUDE_DIR
     NAMES muduo/net/EventLoop.h
@@ -50,8 +37,7 @@ if (NOT CHATSERVER_MUDUO_INCLUDE_DIR OR
     NOT CHATSERVER_MUDUO_BASE_LIBRARY)
     message(FATAL_ERROR
         "Muduo was not found under ${MUDUO_ROOT}. "
-        "Dockerfile prepares this dependency during image build. "
-        "If you are debugging locally, set MUDUO_ROOT to a valid install prefix.")
+        "For mode A, install muduo locally (recommended: /usr/local) or set MUDUO_ROOT explicitly.")
 endif()
 
 get_filename_component(CHATSERVER_MUDUO_LIB_DIR

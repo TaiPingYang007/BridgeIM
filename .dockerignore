@@ -1,9 +1,0 @@
-.git
-.agents
-.codex
-.deps
-build
-bin
-graphify-out
-*.log
-compile_commands.json

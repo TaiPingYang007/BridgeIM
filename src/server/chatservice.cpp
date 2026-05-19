@@ -64,14 +64,36 @@ ChatService::ChatService() {
 }
 
 // 将消息投递给目标用户：优先走本机连接，其次 Redis 跨服，最后存离线
+muduo::net::TcpConnectionPtr ChatService::findLocalConnection(int targetId) {
+  std::lock_guard<std::mutex> lock(_connMutex);
+  auto it = _userConnMap.find(targetId);
+  if (it != _userConnMap.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
+void ChatService::markUserOffline(int userid) {
+  _redis.unsubscribe(userid);
+  User user(userid, "", "", "offline");
+  _userModel.updateState(user);
+}
+
+void ChatService::sendPayload(const muduo::net::TcpConnectionPtr &conn,
+                              const std::string &payload) {
+  conn->send(payload + "\n");
+}
+
+void ChatService::sendJson(const muduo::net::TcpConnectionPtr &conn,
+                           const nlohmann::json &response) {
+  sendPayload(conn, response.dump());
+}
+
 void ChatService::deliverMessage(int targetId, const std::string &payload) {
-  {
-    std::lock_guard<std::mutex> lock(_connMutex);
-    auto it = _userConnMap.find(targetId);
-    if (it != _userConnMap.end()) {
-      it->second->send(payload + "\n");
-      return;
-    }
+  muduo::net::TcpConnectionPtr connection = findLocalConnection(targetId);
+  if (connection) {
+    sendPayload(connection, payload);
+    return;
   }
   // 目标用户不在本机，查询是否在其他服务器上线
   User user = _userModel.query(targetId);
@@ -125,7 +147,7 @@ void ChatService::login(const muduo::net::TcpConnectionPtr &conn,
         {"msgid", static_cast<int>(EnMsgType::LOG_MSG_ACK)},
         {"errno", 3},
         {"errmsg", "User does not exist. Please register first.\n"}};
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
@@ -135,7 +157,7 @@ void ChatService::login(const muduo::net::TcpConnectionPtr &conn,
         {"msgid", static_cast<int>(EnMsgType::LOG_MSG_ACK)},
         {"errno", 2},
         {"errmsg", "Incorrect password. Please try again.\n"}};
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
@@ -145,7 +167,7 @@ void ChatService::login(const muduo::net::TcpConnectionPtr &conn,
         {"msgid", static_cast<int>(EnMsgType::LOG_MSG_ACK)},
         {"errno", 1},
         {"errmsg", "this account is using, input another!\n"}};
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
@@ -213,7 +235,7 @@ void ChatService::login(const muduo::net::TcpConnectionPtr &conn,
     response["groups"] = groupJsonList;
   }
 
-  conn->send(response.dump() + "\n");
+  sendJson(conn, response);
 }
 
 // 处理登出业务
@@ -230,12 +252,7 @@ void ChatService::loginout(const muduo::net::TcpConnectionPtr &conn,
     }
   }
 
-  // 登出成功，取消订阅该用户的消息频道
-  _redis.unsubscribe(userid);
-
-  // 更新用户状态信息
-  User user(userid, "", "", "offline");
-  _userModel.updateState(user);
+  markUserOffline(userid);
 }
 
 // 处理注册业务 name password
@@ -254,13 +271,13 @@ void ChatService::reg(const muduo::net::TcpConnectionPtr &conn,
     response = {{"msgid", static_cast<int>(EnMsgType::REG_MSG_ACK)},
                 {"errno", 0},
                 {"id", user.getId()}};
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
   } else {
     // 注册失败
     nlohmann::json response;
     response = {{"msgid", static_cast<int>(EnMsgType::REG_MSG_ACK)},
                 {"errno", 1}};
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
   }
 }
 
@@ -286,9 +303,7 @@ void ChatService::clientCloseException(
 
   // 客户端连接后没登录就断开，user.getId() == -1，无需操作
   if (user.getId() != -1) {
-    _redis.unsubscribe(user.getId());
-    user.setState("offline");
-    _userModel.updateState(user);
+    markUserOffline(user.getId());
   }
 }
 
@@ -305,30 +320,11 @@ void ChatService::oneChat(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ONE_CHAT_MSG_ACK);
     response["errmsg"] =
         "You are not friends with this user. Message cannot be sent!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
-  {
-    std::lock_guard<std::mutex> lock(_connMutex);
-    auto it = _userConnMap.find(toid);
-    if (it != _userConnMap.end()) {
-      // toid在线，转发消息 服务器主动推送消息给to用户
-      it->second->send(js.dump() + "\n");
-      return;
-    }
-  }
-
-  // 查询toid是否在线
-  User user = _userModel.query(toid);
-  if (user.getState() == "online") {
-    // toid在线，不在同一个服务器
-    _redis.publish(toid, js.dump());
-    return;
-  }
-
-  // toid不在线，存储离线消息
-  _offlineMsgModel.insert(toid, js.dump());
+  deliverMessage(toid, js.dump());
 }
 
 // 添加好友业务请求
@@ -343,7 +339,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
     response["errno"] = 1;
     response["errmsg"] = "You cannot add yourself!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
@@ -353,7 +349,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
     response["errno"] = 1;
     response["errmsg"] = "User does not exist!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
@@ -363,7 +359,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
     response["errno"] = 2;
     response["errmsg"] = "This user is already your friend!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
@@ -375,7 +371,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
     response["errno"] = 2;
     response["errmsg"] = "System busy, please try again later.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   } else if (result.status == QueryStatus::NotFound) {
     // 如果是未写入数据库的好友请求，写入数据库
@@ -384,7 +380,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
       response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
       response["errno"] = 5;
       response["errmsg"] = "System busy, please try again later.";
-      conn->send(response.dump() + "\n");
+      sendJson(conn, response);
       return;
     }
   } else if (result.status == QueryStatus::Ok) {
@@ -394,7 +390,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
       response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
       response["errno"] = 2;
       response["errmsg"] = "The request has been sent!";
-      conn->send(response.dump() + "\n");
+      sendJson(conn, response);
       return;
     } else if (result.value == "rejected") {
       // 如果是拒绝状态应该更新状态并重新发送
@@ -404,7 +400,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
         response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
         response["errno"] = 5;
         response["errmsg"] = "System busy, please try again later.";
-        conn->send(response.dump() + "\n");
+        sendJson(conn, response);
         return;
       }
     } else {
@@ -432,13 +428,13 @@ void ChatService::addFriendHandle(const muduo::net::TcpConnectionPtr &conn,
   if (result.status == QueryStatus::DbError) {
     response["errno"] = 2;
     response["errmsg"] = "System busy, please try again later.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   } else if (result.status == QueryStatus::NotFound) {
     // 不是pending状态
     response["errno"] = 4;
     response["errmsg"] = "The user has not sent a friend request to you!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   } else if (result.status == QueryStatus::Ok) {
     // pending状态
@@ -448,7 +444,7 @@ void ChatService::addFriendHandle(const muduo::net::TcpConnectionPtr &conn,
                                                    "accepted")) {
         response["errno"] = 5;
         response["errmsg"] = "System busy, please try again later.";
-        conn->send(response.dump() + "\n");
+        sendJson(conn, response);
         return;
       }
       // 更新好友关系表
@@ -482,7 +478,7 @@ void ChatService::createGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::CREATE_GROUP_MSG_ACK);
     response["errno"] = 2;
     response["errmsg"] = "System busy, please try again later.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   } else if (result.status == QueryStatus::NotFound) {
     Group group(-1, name, groupdesc);
@@ -498,14 +494,14 @@ void ChatService::createGroup(const muduo::net::TcpConnectionPtr &conn,
       response["errno"] = 1;
       response["errmsg"] = "Create group failed!";
     }
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
   } else if (result.status == QueryStatus::Ok) {
     // 群名已存在
     nlohmann::json response;
     response["msgid"] = static_cast<int>(EnMsgType::CREATE_GROUP_MSG_ACK);
     response["errno"] = 2;
     response["errmsg"] = "Group name exists!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 }
@@ -523,7 +519,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 2;
     response["errmsg"] = "System busy, please try again later.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
   if (inGroupResult.status == QueryStatus::Ok) {
@@ -531,7 +527,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 1;
     response["errmsg"] = "You are already in this group!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
   // inGroupResult.status == NotFound → 继续
@@ -543,7 +539,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 1;
     response["errmsg"] = "System busy, please try again later.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
   if (groupExistResult.status == QueryStatus::NotFound) {
@@ -551,7 +547,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 1;
     response["errmsg"] = "The group is not exist";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
   // groupExistResult.status == Ok → 继续
@@ -564,7 +560,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 1;
     response["errmsg"] = "System busy, please try again later.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
   if (result.status == QueryStatus::NotFound) {
@@ -574,7 +570,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
       response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
       response["errno"] = 3;
       response["errmsg"] = "System busy, please try again later.";
-      conn->send(response.dump() + "\n");
+      sendJson(conn, response);
       return;
     }
   } else {
@@ -584,7 +580,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
       response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
       response["errno"] = 1;
       response["errmsg"] = "The request has been sent, please wait for approval!";
-      conn->send(response.dump() + "\n");
+      sendJson(conn, response);
       return;
     } else if (result.value == "rejected") {
       // rejected 状态可以再次申请，重置为 pending
@@ -593,7 +589,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
         response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
         response["errno"] = 3;
         response["errmsg"] = "System busy, please try again later.";
-        conn->send(response.dump() + "\n");
+        sendJson(conn, response);
         return;
       }
     } else {
@@ -609,7 +605,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 3;
     response["errmsg"] = "System busy, please try again later.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
   if (ownerResult.status == QueryStatus::NotFound) {
@@ -617,7 +613,7 @@ void ChatService::addGroup(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 1;
     response["errmsg"] = "The group owner does not exist.";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
     return;
   }
 
@@ -660,7 +656,7 @@ void ChatService::addGroupHandle(const muduo::net::TcpConnectionPtr &conn,
     response["msgid"] = static_cast<int>(EnMsgType::ADD_GROUP_RESPONSE);
     response["errno"] = 2;
     response["errmsg"] = "You have no request to join the group!";
-    conn->send(response.dump() + "\n");
+    sendJson(conn, response);
   }
 }
 
@@ -677,44 +673,17 @@ void ChatService::groupChat(const muduo::net::TcpConnectionPtr &conn,
   // 获取群聊内的其他成员id
   std::vector<int> useridVec = _groupModel.queryGroupUsers(userid, groupid);
   std::string payload = js.dump();
-  std::vector<muduo::net::TcpConnectionPtr> localConnections;
-  std::vector<int> remoteUserIds;
-
-  // 先在锁内做本地连接快照，避免持锁做 IO
-  {
-    std::lock_guard<std::mutex> lock(_connMutex);
-    for (int id : useridVec) {
-      auto it = _userConnMap.find(id);
-      if (it != _userConnMap.end()) {
-        localConnections.push_back(it->second);
-      } else {
-        remoteUserIds.push_back(id);
-      }
-    }
-  }
-
-  for (const muduo::net::TcpConnectionPtr &connection : localConnections) {
-    connection->send(payload + "\n");
-  }
-
-  for (int id : remoteUserIds) {
-    User user = _userModel.query(id);
-    if (user.getState() == "online") {
-      _redis.publish(id, payload);
-    } else {
-      _offlineMsgModel.insert(id, payload);
-    }
+  for (int id : useridVec) {
+    deliverMessage(id, payload);
   }
 }
 
 // 从redis消息队列中获取订阅消息
 void ChatService::handleRedisSubscribeMessage(int userid, std::string msg) {
   LOG_INFO("dispatch redis subscribed message, userid=%d", userid);
-  std::lock_guard<std::mutex> lock(_connMutex);
-
-  auto it = _userConnMap.find(userid);
-  if (it != _userConnMap.end()) {
-    it->second->send(msg + "\n");
+  muduo::net::TcpConnectionPtr connection = findLocalConnection(userid);
+  if (connection) {
+    sendPayload(connection, msg);
     return;
   }
 

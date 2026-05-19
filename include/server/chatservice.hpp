@@ -83,6 +83,20 @@ public:
 private:
   ChatService();
 
+  // 查询目标用户是否连接在当前节点
+  muduo::net::TcpConnectionPtr findLocalConnection(int targetId);
+
+  // 将用户从在线路由系统中下线
+  void markUserOffline(int userid);
+
+  // 发送带换行分隔的原始字符串消息
+  void sendPayload(const muduo::net::TcpConnectionPtr &conn,
+                   const std::string &payload);
+
+  // 发送 JSON 响应
+  void sendJson(const muduo::net::TcpConnectionPtr &conn,
+                const nlohmann::json &response);
+
   // 将消息投递给目标用户（本机连接 → Redis 跨服 → 离线存储）
   void deliverMessage(int targetId, const std::string &payload);
 

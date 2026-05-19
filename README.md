@@ -23,6 +23,11 @@
 - 项目内 `redis`
 - 项目内 `nginx`
 
+## 重构蓝图
+
+- 当前总目标是以 `02_cluster_chat_server` 为业务骨架，逐步吸收 `06_connection_pool`、`01_thread_pool`、`03_rpc_framework` 的公共能力，最终演化成更清晰分层的 IM 后端体系
+- 当前仓库已经完成 Stage 1 的公共层骨架预留：`src/common` / `include/common` 已建立，后续会优先从数据库基础设施层开始整合
+
 ## 目录说明
 
 ```text

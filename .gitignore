@@ -8,6 +8,10 @@
 compile_commands.json
 build/
 bin/
+
+# Local-only planning / analysis artifacts
+PROJECT_CONTEXT.md
+docs/
 graphify-out/
 *.log
 *.o

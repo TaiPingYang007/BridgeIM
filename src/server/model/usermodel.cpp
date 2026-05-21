@@ -14,7 +14,7 @@ bool UserModel::insert(User &user) {
   if (mysql.connect()) {
     if (mysql.update(sql.str())) {
       // 获取插入成功的用户数据生成的主键id
-      user.setId(mysql_insert_id(mysql.getconnection()));
+      user.setId(mysql_insert_id(mysql.getconnection())); //getconnection获取连接句柄 mysql_insert_id获取上一次插入操作生成的主键id
       return true;
     }
   }

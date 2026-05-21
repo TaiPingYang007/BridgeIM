@@ -4,9 +4,11 @@
 #include <cstdlib>
 
 namespace {
-
+// 获取环境变量值，如果环境变量不存在或为空，则返回默认值
 std::string getEnvOrDefault(const char *name, const char *defaultValue) {
+  // getenv函数用于获取环境变量的值，参数是环境变量的名称，返回值是一个指向环境变量值的指针，如果环境变量不存在，则返回nullptr
   const char *value = std::getenv(name);
+  // 如果环境变量不存在或为空，则返回默认值
   if (value == nullptr || value[0] == '\0') {
     return defaultValue;
   }
@@ -14,11 +16,13 @@ std::string getEnvOrDefault(const char *name, const char *defaultValue) {
 }
 
 unsigned int getEnvPortOrDefault(const char *name, unsigned int defaultValue) {
+  // 获取环境变量值
   std::string value = getEnvOrDefault(name, "");
   if (value.empty()) {
     return defaultValue;
   }
 
+  // 尝试将环境变量值转换为整数，并检查是否在有效的端口范围内（1-65535）
   try {
     int port = std::stoi(value);
     if (port > 0 && port <= 65535) {
@@ -55,6 +59,7 @@ bool MySQL::connect() {
 
   if (mysql_real_connect(_conn, host.c_str(), user.c_str(), password.c_str(),
                          database.c_str(), port, nullptr, 0) != nullptr) {
+    // 尝试将数据库连接的字符集设置为 utf8mb4，并检查是否设置成功
     if (mysql_set_character_set(_conn, "utf8mb4") != 0) {
       LOG_ERROR("set mysql charset utf8mb4 failed: %s", mysql_error(_conn));
       return false;
@@ -70,6 +75,7 @@ bool MySQL::connect() {
     return false;
   }
 }
+
 // 更新操作
 bool MySQL::update(std::string sql) {
   if (mysql_query(_conn, sql.c_str())) {

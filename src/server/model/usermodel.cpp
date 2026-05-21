@@ -1,103 +1,98 @@
 #include "../../../include/server/model/usermodel.hpp"
-#include "../../../include/server/db/db.h"
-#include <mysql/mysql.h>
+#include "../../../include/common/db/DbSession.hpp"
+#include "../../../include/common/db/QueryResult.hpp"
 #include <sstream>
 
 // User表的增加方法
-bool UserModel::insert(User &user) {
+bool UserModel::insert(User &user)
+{
   std::ostringstream sql;
   sql << "insert into User(name,password,state) values('"
       << user.getName() << "','" << user.getPassword() << "','"
       << user.getState() << "')";
 
-  MySQL mysql;
-  if (mysql.connect()) {
-    if (mysql.update(sql.str())) {
-      // 获取插入成功的用户数据生成的主键id
-      user.setId(mysql_insert_id(mysql.getconnection())); //getconnection获取连接句柄 mysql_insert_id获取上一次插入操作生成的主键id
-      return true;
-    }
+  DbSession session;
+  if (session.update(sql.str()))
+  {
+    // 获取插入成功的用户数据生成的主键id
+    user.setId(session.lastInsertId()); // getconnection获取连接句柄 mysql_insert_id获取上一次插入操作生成的主键id
+    return true;
   }
   return false;
 }
 
 // User表的查询方法
 User UserModel::query(
-    std::string name) { // 1、组装sql语句，初始化一个长度为1024，数据全为0的数组
+    std::string name)
+{ // 1、组装sql语句
   std::ostringstream sql;
   sql << "select * from User where name = '" << name << "'";
 
-  // 2、连接数据库，执行sql语句
-  MySQL mysql;
-  if (mysql.connect()) {
-    MYSQL_RES *res = mysql.query(sql.str());
-    if (res != nullptr) {
-      // 获取查询结果
-      MYSQL_ROW row = mysql_fetch_row(res);
-      if (row != nullptr) {
-        User user;
-        user.setId(atoi(row[0]));
-        user.setName(row[1]);
-        user.setPassword(row[2]);
-        user.setState(row[3]);
+  // 2、获取连接句柄，执行sql语句
+  DbSession session;
+  QueryResult result = session.query(sql.str());
+  if (result.valid())
+  {
+    // 获取查询结果
+    if (result.next())
+    {
+      User user;
+      user.setId(result.getInt(0));
+      user.setName(result.getString(1));
+      user.setPassword(result.getString(2));
+      user.setState(result.getString(3));
 
-        mysql_free_result(res);
-        return user;
-      }
-      mysql_free_result(res);
+      return user;
     }
   }
   return User();
 }
 
 // User表的查询方法
-User UserModel::query(int id) {
-  User user;
+User UserModel::query(int id)
+{
+  // 1、组装sql语句
   std::ostringstream sql;
   sql << "select * from User where id = '" << id << "'";
 
-  // 2、连接数据库，执行sql语句
-  MySQL mysql;
-  if (mysql.connect()) {
-    MYSQL_RES *res = mysql.query(sql.str());
-    if (res != nullptr) {
-      // 获取查询结果
-      MYSQL_ROW row = mysql_fetch_row(res);
-      if (row != nullptr) {
-        user.setId(atoi(row[0]));
-        user.setName(row[1]);
-        // row[2] = password 故意跳过
-        user.setState(row[3]);
-      }
+  // 2、获取连接句柄，执行sql语句
+  DbSession session;
+  QueryResult result = session.query(sql.str());
+  if (result.valid())
+  {
+    if (result.next())
+    {
+      User user;
+      user.setId(result.getInt(0));
+      user.setName(result.getString(1));
+      user.setState(result.getString(3));
+      return user;
     }
-    mysql_free_result(res);
   }
-  return user;
+  return User();
 }
 
 // 更新用户状态信息
-bool UserModel::updateState(User &user) {
+bool UserModel::updateState(User &user)
+{
+  // 1、组装sql语句
   std::ostringstream sql;
   sql << "update User set state = '" << user.getState()
       << "' where id = '" << user.getId() << "'";
 
-  MySQL mysql;
-  if (mysql.connect()) {
-    if (mysql.update(sql.str())) {
-      return true;
-    }
-  }
-  return false;
+  // 获取连接句柄，执行sql语句
+  DbSession session;
+  return session.update(sql.str());
 }
 
 // 重置用户的状态信息
-void UserModel::resetState() {
+void UserModel::resetState()
+{
+  // 1、组装sql语句
   std::ostringstream sql;
   sql << "update User set state = 'offline' where state = 'online'";
 
-  // 2、数据库连接
-  MySQL mysql;
-  if (mysql.connect()) {
-    mysql.update(sql.str());
-  }
+  // 2、获取连接句柄，执行sql语句
+  DbSession session;
+  session.update(sql.str());
 }

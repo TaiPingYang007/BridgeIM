@@ -1,8 +1,7 @@
 #include "../../../include/server/model/friendrequestmodel.hpp"
-#include "../../../include/server/db/db.h"
+#include "../../../include/common/db/DbSession.hpp"
+#include "../../../include/common/db/QueryResult.hpp"
 #include "../../../include/server/logger.h"
-#include <iostream>
-#include <mysql/mysql.h>
 #include <sstream>
 
 // 添加好友请求操作
@@ -12,23 +11,14 @@ bool FriendRequestModel::addFriendRequest(int userid, int targetid) {
   sql << "insert into FriendRequest (requester_id, target_id,status) values ("
       << userid << "," << targetid << "," << "'pending');";
 
-  // 2、连接数据库
-  MySQL mysql;
-
-  // 判断是否连接成功
-  if (mysql.connect()) {
-    // 执行sql语句
-    if (mysql.update(sql.str())) {
-      return true;
-    } else {
-      LOG_ERROR("%s:%d: insert FriendRequest failed error sql: %s",
-                __FILE_NAME__, __LINE__, sql.str().c_str());
-      return false;
-    }
-  } else {
-    LOG_ERROR("%s:%d: sql connect error!", __FILE_NAME__, __LINE__);
-    return false;
+  DbSession session;
+  if (session.update(sql.str())) {
+    return true;
   }
+
+  LOG_ERROR("%s:%d: insert FriendRequest failed error sql: %s",
+            __FILE_NAME__, __LINE__, sql.str().c_str());
+  return false;
 }
 
 // 获取好友请求状态 userid targetid
@@ -42,32 +32,19 @@ BoolQueryResult FriendRequestModel::isPendingRequest(int userid, int targetid) {
   sql << "select status from FriendRequest where requester_id = " << userid
       << " and target_id = " << targetid << ";";
 
-  // 2、连接数据库
-  MySQL mysql;
-  if (mysql.connect()) {
-    // 执行sql语句
-    MYSQL_RES *res = mysql.query(sql.str());
-    if (res != nullptr) {
-      // sql语句执行成功，查询成功
-      MYSQL_ROW row = mysql_fetch_row(res);
-      if (row != nullptr && std::string(row[0]) == "pending") {
-        mysql_free_result(res);
-        return {QueryStatus::Ok, true};
-      } else {
-        mysql_free_result(res);
-        return {QueryStatus::NotFound, false};
-      }
-    } else {
-      // sql语句执行失败，查询失败
-      LOG_ERROR("%s:%d: select FriendRequest failed error sql: %s",
-                __FILE_NAME__, __LINE__, sql.str().c_str());
-      // 这里res已经是nullptr了不需要再执行mysql_free_result(res);
-      return {QueryStatus::DbError, false};
-    }
-  } else {
-    LOG_ERROR("%s:%d: sql connect error!", __FILE_NAME__, __LINE__);
+  DbSession session;
+  QueryResult result = session.query(sql.str());
+  if (!result.valid()) {
+    LOG_ERROR("%s:%d: select FriendRequest failed error sql: %s",
+              __FILE_NAME__, __LINE__, sql.str().c_str());
     return {QueryStatus::DbError, false};
   }
+
+  if (result.next() && result.getString(0) == "pending") {
+    return {QueryStatus::Ok, true};
+  }
+
+  return {QueryStatus::NotFound, false};
 }
 
 // 写入请求结果和处理事件
@@ -89,21 +66,14 @@ bool FriendRequestModel::updateRequestStatus(int userid, int targetid,
     return false;
   }
 
-  // 2、连接数据库
-  MySQL mysql;
-  if (mysql.connect()) {
-    // 执行sql语句
-    if (mysql.update(sql.str())) {
-      return true;
-    } else {
-      LOG_ERROR("%s:%d: insert FriendRequest failed error sql: %s",
-                __FILE_NAME__, __LINE__, sql.str().c_str());
-      return false;
-    }
-  } else {
-    LOG_ERROR("%s:%d: sql connect error!", __FILE_NAME__, __LINE__);
-    return false;
+  DbSession session;
+  if (session.update(sql.str())) {
+    return true;
   }
+
+  LOG_ERROR("%s:%d: insert FriendRequest failed error sql: %s",
+            __FILE_NAME__, __LINE__, sql.str().c_str());
+  return false;
 }
 
 // 查询请求状态
@@ -113,26 +83,17 @@ RequestStatusResult FriendRequestModel::queryRequestStatus(int userid,
   sql << "select status from FriendRequest where requester_id = " << userid
       << " and target_id = " << targetid << ";";
 
-  MySQL mysql;
-  if (!mysql.connect()) {
-    LOG_ERROR("%s:%d: sql connect error!", __FILE_NAME__, __LINE__);
-    return {QueryStatus::DbError, ""};
-  }
-
-  MYSQL_RES *res = mysql.query(sql.str());
-  if (res == nullptr) {
+  DbSession session;
+  QueryResult result = session.query(sql.str());
+  if (!result.valid()) {
     LOG_ERROR("%s:%d: select FriendRequest failed error sql: %s",
               __FILE_NAME__, __LINE__, sql.str().c_str());
     return {QueryStatus::DbError, ""};
   }
 
-  MYSQL_ROW row = mysql_fetch_row(res);
-  if (row == nullptr || row[0] == nullptr) {
-    mysql_free_result(res);
+  if (!result.next()) {
     return {QueryStatus::NotFound, ""};
   }
 
-  std::string status = row[0];
-  mysql_free_result(res);
-  return {QueryStatus::Ok, status};
+  return {QueryStatus::Ok, result.getString(0)};
 }

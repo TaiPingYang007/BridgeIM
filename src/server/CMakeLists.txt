@@ -4,7 +4,6 @@ set(
     logger.cpp
     chatserver.cpp
     chatservice.cpp
-    db/db.cpp
     model/usermodel.cpp
     model/offlinemessagemodel.cpp
     model/friendmodel.cpp
@@ -31,7 +30,6 @@ target_include_directories(ChatServer PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/server
     ${CMAKE_SOURCE_DIR}/include/server/model
-    ${CMAKE_SOURCE_DIR}/include/server/db
     ${CMAKE_SOURCE_DIR}/include/server/redis
 )
 
@@ -44,6 +42,7 @@ set_target_properties(ChatServer PROPERTIES
 )
 
 target_link_libraries(ChatServer PRIVATE
+    bridgeim_common_db
     chatserver_muduo
     nlohmann_json::nlohmann_json
     ${CHATSERVER_MYSQLCLIENT_LIBRARY}

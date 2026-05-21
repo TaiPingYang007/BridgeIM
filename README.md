@@ -27,6 +27,7 @@
 
 - 当前总目标是以 `02_cluster_chat_server` 为业务骨架，逐步吸收 `06_connection_pool`、`01_thread_pool`、`03_rpc_framework` 的公共能力，最终演化成更清晰分层的 IM 后端体系
 - 当前仓库已经完成 Stage 1 的公共层骨架预留：`src/common` / `include/common` 已建立，后续会优先从数据库基础设施层开始整合
+- 当前已进入 Stage 2 早期落地：`common/db` 已接入主构建，部分 model 已改走连接池版数据库访问链路
 
 ## 目录说明
 
@@ -41,9 +42,22 @@
 │   ├── nginx/nginx.conf
 │   └── redis/redis.conf
 ├── scripts/bootstrap-shared-mysql.sh
+├── graphify-out/                   # 本地代码图谱产物，不作为主线源码
 ├── include/
 └── src/
 ```
+
+## 当前数据库层状态
+
+- 当前主数据库基础设施位于 `include/common/db` 和 `src/common/db`
+- 已落地的核心组件包括：
+  - `ConnectionPool`
+  - `ConnectionPoolConfig`
+  - `MySQL`
+  - `DbSession`
+  - `QueryResult`
+- 当前配置入口优先兼容 `.env`，不再要求日常开发显式准备 `connection_pool.conf`
+- `src/server/db` 暂时保留作历史对照，但当前主路径已经优先走 `common/db`
 
 ## 本地开发前提
 
@@ -171,6 +185,12 @@ set +a
 ./bin/ChatClient 127.0.0.1 8000
 ```
 
+注意：
+
+- `8000` 走的是 Docker 内 Nginx 集群入口
+- Nginx 默认会在 `6000` 和 `6002` 两个本地后端之间转发
+- 如果你只启动了一个 `ChatServer` 节点，不要连 `8000`，应该直接连对应节点端口
+
 如果你想直连某个节点：
 
 节点 1：
@@ -184,6 +204,11 @@ set +a
 ```bash
 ./bin/ChatClient 127.0.0.1 6002
 ```
+
+推荐测试习惯：
+
+- 先做单节点验证：`6000 + client 直连 6000`
+- 再做集群入口验证：`6000 + 6002 + client 连 8000`
 
 ## 推荐运行顺序
 
@@ -243,6 +268,11 @@ docker exec -it mysql_db mysql -uchatserver_app -pchatserver_dev_password -D cha
 3. 本地开两个客户端
 4. 一个客户端连 `8000`
 5. 再结合服务端日志，确认不同节点之间能通过 Redis 转发消息
+
+## Graphify
+
+- `graphify-out/` 是本地分析产物目录，不是主业务源码
+- 当前已执行过一次 `graphify update .`，可用于继续看结构树和调用流
 
 ## 当前设计说明
 

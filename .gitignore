@@ -20,6 +20,7 @@ compile_commands.json
 
 # Local project context
 PROJECT_CONTEXT.md
+CLAUDE.md
 
 # MCP plugin data (agentmemory)
 data/

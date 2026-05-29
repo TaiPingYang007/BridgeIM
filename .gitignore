@@ -18,6 +18,9 @@ compile_commands.json
 # Logs
 *.log
 
+# Local project context
+PROJECT_CONTEXT.md
+
 # MCP plugin data (agentmemory)
 data/
 

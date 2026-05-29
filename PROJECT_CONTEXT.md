@@ -1,0 +1,258 @@
+# BridgeIM Project Context
+
+## 项目定位与运行模式
+
+- 项目路径：`/home/taipingyang007/projects/cpp_project/04_BridgeIM`
+- 这是当前 BridgeIM 的主工作仓库。
+- 当前代码基线来自 `/home/taipingyang007/projects/cpp_project/02_cluster_chat_server/ChatServer`。
+- 当前采用 Mode A：
+  - 本地写代码
+  - 本地编译 `ChatServer` / `ChatClient`
+  - 本地运行服务端和客户端
+  - Docker 只负责依赖服务，不直接承载业务进程
+- 当前不是沿着 Docker-only 基线继续，而是先重新对齐到本地运行基线，再往后演化 BridgeIM。
+- 当前目标不是单节点聊天，而是通过 Nginx + 多个 `ChatServer` 节点 + Redis 发布订阅实现集群入口和跨节点投递。
+- 当前重构阶段已从 Stage 1 进入 Stage 2 早期实现：`common/db` 连接池版数据库层已经接入主构建。
+
+## 技术栈与依赖前提
+
+- 语言与构建：
+  - C++11
+  - CMake 3.16+
+- 核心依赖：
+  - Muduo
+  - MySQL client (`mysqlclient`)
+  - hiredis
+  - nlohmann_json
+  - pthread / `Threads::Threads`
+- 运行辅助：
+  - Docker Compose
+  - Nginx
+  - Redis
+- 本地依赖默认假设：
+  - Muduo 安装在 `/usr/local`
+  - 如不在默认路径，需要显式设置 `MUDUO_ROOT`
+
+## 系统拓扑
+
+```text
+ChatClient
+  -> Nginx :8000
+  -> ChatServer node A :6000
+  -> ChatServer node B :6002
+
+ChatServer
+  -> Redis pub/sub
+  -> MySQL chatserver
+```
+
+- 客户端默认连接 `127.0.0.1:8000`，由 Nginx `stream` 转发到本机两个服务端节点。
+- 集群内消息分发路径是：
+  - 优先投递给当前节点上的在线连接
+  - 当前节点没有目标连接时，查询用户状态
+  - 目标用户在线但在其他节点时，通过 Redis 发布订阅跨节点转发
+  - 目标用户离线时，写入离线消息表
+
+## 核心代码结构
+
+### 入口与构建
+
+- 顶层构建入口：`CMakeLists.txt`
+- 子目录构建入口：`src/CMakeLists.txt`
+- 服务端目标：`src/server/CMakeLists.txt`
+- 客户端目标：`src/client/CMakeLists.txt`
+- 顶层项目名：`BridgeIM`（CMake）
+- 本地构建脚本：`autobuild.sh`
+- 当前可执行文件名仍为：`ChatServer` / `ChatClient`
+
+### 服务端职责分层
+
+- `ChatServer`
+  - 位于 `src/server/chatserver.cpp`
+  - 负责 Muduo `TcpServer`、连接回调、消息回调、换行分帧、JSON 解析入口
+  - 默认设置 4 个 Muduo 线程
+- `ChatService`
+  - 位于 `src/server/chatservice.cpp`
+  - 负责业务消息路由和核心业务逻辑
+  - 使用单例模式维护消息处理器映射、在线连接表、Redis 模块和各类 Model
+- `model/*`
+  - 负责各业务对象的数据库读写
+  - 主要包括用户、好友、群组、离线消息、好友申请、加群申请
+- `common/db/*`
+  - 负责当前主路径上的 MySQL 连接池、配置解析、会话借还和查询结果封装
+  - 关键类型包括 `ConnectionPool`、`ConnectionPoolConfig`、`MySQL`、`DbSession`、`QueryResult`
+- `server/db/*`
+  - 当前主要作为旧直连实现保留，用于对照和回溯，不再是优先主路径
+- `redis/*`
+  - 负责 Redis 发布订阅、监听线程、订阅命令队列和跨节点消息接收
+- `logger.*`
+  - 负责日志初始化与日志输出
+
+### 客户端职责
+
+- 客户端入口位于 `src/client/main.cpp`
+- 客户端使用阻塞 socket + 独立读线程
+- 主线程负责命令行菜单和消息发送，读线程负责接收服务器响应和推送消息
+
+## 协议与消息边界
+
+- 传输格式是 JSON 文本。
+- 报文分隔方式是“每条 JSON 后追加一个换行符 `\n`”。
+- 服务端 `onMessage` 会按连接缓冲区累计数据，并按换行符切分完整报文。
+- 消息类型定义位于 `include/public.hpp`，核心消息族包括：
+  - 登录 / 登录响应 / 登出
+  - 注册 / 注册响应
+  - 私聊 / 私聊响应
+  - 添加好友请求 / 处理好友请求 / 好友请求响应
+  - 创建群组 / 创建群组响应
+  - 加群请求 / 处理加群请求 / 加群响应
+  - 群聊
+- `ChatService` 通过 `msgid -> handler` 的映射分发业务逻辑。
+
+## 数据模型
+
+### 主要业务对象
+
+- `User`
+- `Friend`
+- `Group` / `GroupUser`
+- `OfflineMessage`
+- `FriendRequest`
+- `GroupRequest`
+
+### 对应数据库表
+
+- `User`
+- `Friend`
+- `AllGroup`
+- `GroupUser`
+- `OfflineMessage`
+- `FriendRequest`
+- `GroupRequest`
+
+### 当前数据职责概览
+
+- `User`
+  - 注册、登录、在线状态维护
+- `Friend`
+  - 好友关系校验与好友列表查询
+- `AllGroup` / `GroupUser`
+  - 群信息、群成员、群角色
+- `OfflineMessage`
+  - 离线消息暂存
+- `FriendRequest` / `GroupRequest`
+  - 申请状态：`pending` / `accepted` / `rejected`
+
+## 构建与启动基线
+
+### 环境变量
+
+- 服务端依赖 `.env` 中的 MySQL / Redis 连接参数
+- 默认模板文件：`.env.example`
+- 关键变量：
+  - `MYSQL_HOST`
+  - `MYSQL_PORT`
+  - `MYSQL_DATABASE`
+  - `MYSQL_USER`
+  - `MYSQL_PASSWORD`
+  - `REDIS_HOST`
+  - `REDIS_PORT`
+  - `REDIS_PASSWORD`
+
+### MySQL 准备
+
+- 项目复用共享 `mysql_db`
+- 初始化脚本：`scripts/bootstrap-shared-mysql.sh`
+- 默认数据库名：`chatserver`
+- 默认应用用户：`chatserver_app`
+
+### Docker 依赖服务
+
+- 编排文件：`compose.yaml`
+- 当前 compose 只负责：
+  - `redis`
+  - `nginx`
+
+### 本地构建
+
+- 推荐脚本：`./autobuild.sh`
+- 或手动：
+  - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`
+  - `cmake --build build -j"$(nproc)"`
+
+### 本地运行
+
+- 启动依赖服务：
+  - `docker compose up -d`
+- 启动前加载环境变量：
+  - `set -a`
+  - `source .env`
+  - `set +a`
+- 启动两个服务端节点：
+  - `./bin/ChatServer 0.0.0.0 6000`
+  - `./bin/ChatServer 0.0.0.0 6002`
+- 启动客户端：
+  - `./bin/ChatClient 127.0.0.1 8000`
+- 单节点验证时更推荐：
+  - `./bin/ChatServer 0.0.0.0 6000`
+  - `./bin/ChatClient 127.0.0.1 6000`
+- 原因：
+  - `8000` 背后是 Nginx 双节点入口，默认会在 `6000` 和 `6002` 之间转发
+  - 只启动一个节点时直连 `6000` 更适合排错
+
+## 当前阶段约束
+
+- `04_BridgeIM` 是后续主改动落点，不再回旧 `ChatServer` 仓库推进主线。
+- 当前第一目标是保持 Mode A 开发链路稳定，再逐步做 BridgeIM 级别的分层和能力演化。
+- 恢复上下文时，要始终区分“项目身份是 BridgeIM”和“当前代码基线来自 ChatServer”这两件事。
+- 总体重构路线见 [docs/bridgeim_refactor_plan.md](docs/bridgeim_refactor_plan.md)。
+- 当前数据库层主结论：
+  - `common/db` 已经不是空骨架，而是当前正在使用的连接池版基础设施
+  - 连接池已接入主构建，线程池是当前 Stage 2 后续主线之一
+- 当前线程池主结论：
+  - `ThreadPool` 已从 `01_thread_pool` 教学项目引入 BridgeIM，位于 `include/common/concurrency/ThreadPool.hpp` 和 `src/common/concurrency/ThreadPool.cpp`
+  - 当前实现具备固定 worker、有界队列、`future` 返回值、显式 `shutdown()`、析构兜底关闭等基础能力
+  - 当前实现可以作为 BridgeIM 第一版接入基础，但仍偏教学型，后续需要收紧工程边界
+  - 接入前最值得优先补的是：让 `shutdown()` 语义更明确幂等，并明确 BridgeIM 不依赖“任务内部调用 shutdown”这个特殊场景
+  - 接入 `ChatServer::onMessage` 时必须处理两个边界：`enqueue()` 队列满抛异常，以及业务 handler 在线程池任务里抛异常
+  - 当前推荐路线是先做线程池最小工程化补强，再接入 `ChatServer`，不要先大重构成复杂生产级线程池
+
+## 学习与复习入口
+
+推荐阅读顺序：
+
+1. `README.md`
+2. `include/public.hpp`
+3. `src/server/main.cpp`
+4. `src/server/chatserver.cpp`
+5. `include/server/chatservice.hpp`
+6. `src/server/chatservice.cpp`
+7. `src/server/db/db.cpp`
+8. `src/server/redis/redis.cpp`
+9. `docker/mysql/init/01-init-chatserver.sql`
+10. `src/client/main.cpp`
+
+带着问题复习时，优先按下面的映射找代码：
+
+- 想看网络收包和分帧：`src/server/chatserver.cpp`
+- 想看消息分发和业务主流程：`src/server/chatservice.cpp`
+- 想看跨节点投递：`src/server/chatservice.cpp` + `src/server/redis/redis.cpp`
+- 想看数据库结构：`docker/mysql/init/01-init-chatserver.sql`
+- 想看客户端交互：`src/client/main.cpp`
+- 想看部署入口：`compose.yaml` + `docker/nginx/nginx.conf`
+
+## 常见约定与排障提示
+
+- `ChatServer` 在本地模式下必须绑定 `0.0.0.0`，不能只绑定 `127.0.0.1`。
+- 原因是 Nginx 运行在 Docker 容器内，需要通过宿主机地址转发到本地服务端节点。
+- 服务端和依赖连接参数默认依赖环境变量，不加载 `.env` 时容易连错默认值或误判问题来源。
+- 如果客户端收到 `this account is using`，通常不是当前连接逻辑有问题，而是数据库中的该用户状态残留为 `online`。
+- 服务端异常退出时，`ChatService::reset()` 会尝试把在线状态重置为离线，但调试中仍要警惕脏状态残留。
+- 当前日志目录由构建时的 `CHATSERVER_LOG_DIR` 指向 `bin/`。
+
+## CodeGraph 状态
+
+- 当前项目已切换为使用 Claude Code 的 `codegraph` 索引辅助代码理解，不再沿用旧的 Graphify 流程。
+- `.codegraph/` 是本地代码图谱索引目录，已加入 `.gitignore`，不提交到仓库。
+- 当前已执行过 `codegraph init` 和 `codegraph index`，可用于后续快速查询项目结构、符号、调用关系和影响范围。
+- 后续讲解架构、追踪调用链或定位符号时，优先使用 CodeGraph 工具；如果代码发生较大变化，可重新触发索引刷新。

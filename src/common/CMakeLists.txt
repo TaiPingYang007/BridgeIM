@@ -21,9 +21,17 @@ target_link_libraries(bridgeim_common_db PUBLIC
     Threads::Threads
 )
 
-add_library(bridgeim_common_concurrency INTERFACE)
-target_include_directories(bridgeim_common_concurrency INTERFACE
+set(
+    BRIDGEIM_COMMON_CONCURRENCY_SRC
+    concurrency/ThreadPool.cpp
+)
+
+add_library(bridgeim_common_concurrency STATIC ${BRIDGEIM_COMMON_CONCURRENCY_SRC})
+target_include_directories(bridgeim_common_concurrency PUBLIC
     ${CMAKE_SOURCE_DIR}/include
+)
+target_link_libraries(bridgeim_common_concurrency PUBLIC
+    Threads::Threads
 )
 
 add_library(bridgeim_common_rpc INTERFACE)

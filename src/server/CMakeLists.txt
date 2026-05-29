@@ -42,7 +42,7 @@ set_target_properties(ChatServer PROPERTIES
 )
 
 target_link_libraries(ChatServer PRIVATE
-    bridgeim_common_db
+    bridgeim_common
     chatserver_muduo
     nlohmann_json::nlohmann_json
     ${CHATSERVER_MYSQLCLIENT_LIBRARY}

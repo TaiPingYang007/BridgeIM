@@ -1,6 +1,7 @@
 #ifndef CHART_SERVER_HPP
 #define CHART_SERVER_HPP
 
+#include "common/concurrency/ThreadPool.hpp"
 #include <muduo/net/EventLoop.h>
 #include <muduo/net/TcpServer.h>
 #include <nlohmann/json.hpp>
@@ -34,6 +35,7 @@ private:
 
   muduo::net::TcpServer  _server; // 组合的 muduo 库，实现服务器功能的类对象
   muduo::net::EventLoop *_loop;   // 指向事件循环对象的指针
+  ThreadPool _threadPool;         // 业务线程池，负责执行 ChatService handler
 };
 
 #endif

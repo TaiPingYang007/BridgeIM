@@ -4,11 +4,21 @@
 #include <cstddef>
 #include <mutex>
 
+namespace {
+ThreadPool::Config makeBusinessThreadPoolConfig() {
+  ThreadPool::Config config;
+  config.thread_count = 4;
+  config.max_queue_size = 10000;
+  return config;
+}
+} // namespace
+
 // 初始化聊天服务系统对象
 ChatServer::ChatServer(muduo::net::EventLoop *loop,
                        const muduo::net::InetAddress &listenAddr,
                        const std::string &nameArg)
-    : _server(loop, listenAddr, nameArg), _loop(loop) {
+    : _server(loop, listenAddr, nameArg), _loop(loop),
+      _threadPool(makeBusinessThreadPoolConfig()) {
   // 注册连接回调
   _server.setConnectionCallback(
       [this](const muduo::net::TcpConnectionPtr &conn) {
@@ -31,7 +41,20 @@ void ChatServer::start() { _server.start(); }
 void ChatServer::onConnection(const muduo::net::TcpConnectionPtr &conn) {
   // 客户端断开连接
   if (!conn->connected()) {
-    ChatService::instance()->clientCloseException(conn);
+    try {
+      _threadPool.enqueue([conn]() {
+        try {
+          ChatService::instance()->clientCloseException(conn);
+        } catch (const std::exception &e) {
+          LOG_ERROR("client close cleanup exception: %s\n", e.what());
+        } catch (...) {
+          LOG_ERROR("unknown client close cleanup exception\n");
+        }
+      });
+    } catch (const std::exception &e) {
+      LOG_ERROR("failed to enqueue client close cleanup task: %s\n", e.what());
+      ChatService::instance()->clientCloseException(conn);
+    }
 
     // 释放_recvBufMap中的数据
     {
@@ -46,6 +69,7 @@ void ChatServer::onConnection(const muduo::net::TcpConnectionPtr &conn) {
 // 上报读写事件相关信息的回调函数
 void ChatServer::onMessage(const muduo::net::TcpConnectionPtr &conn,
                            muduo::net::Buffer *buf, muduo::Timestamp time) {
+  // 将接收到的数据转换成字符串，方便后续处理
   std::string readbuf = buf->retrieveAllAsString();
 
   // 接收到消息后先放到对应的conn的缓存中
@@ -87,8 +111,24 @@ void ChatServer::onMessage(const muduo::net::TcpConnectionPtr &conn,
       auto msgHandler =
           ChatService::instance()->getHandler(js["msgid"].get<int>());
 
-      // 回调消息绑定好的事件处理器，来执行相应的业务逻辑
-      msgHandler(conn, js, time);
+      // 将业务处理投递到线程池，避免阻塞 Muduo IO 线程
+      try {
+        _threadPool.enqueue([conn, js, time, msgHandler]() mutable {
+          try {
+            msgHandler(conn, js, time);
+          } catch (const std::exception &e) {
+            LOG_ERROR("business handler exception: %s\n", e.what());
+          } catch (...) {
+            LOG_ERROR("unknown business handler exception\n");
+          }
+        });
+      } catch (const std::exception &e) {
+        LOG_ERROR("failed to enqueue business task: %s\n", e.what());
+        nlohmann::json response;
+        response["errno"] = 1;
+        response["errmsg"] = "server busy";
+        conn->send(response.dump() + "\n");
+      }
 
     } catch (const nlohmann::json::parse_error &e) {
       LOG_ERROR("JSON parse error: %s. Data: %s\n", e.what(),

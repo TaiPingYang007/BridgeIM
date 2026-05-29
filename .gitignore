@@ -1,18 +1,28 @@
-.cache
-.deps/
-.agents/
-.codex
-.vscode/
-.idea/
-.env
-compile_commands.json
+# Build
 build/
 bin/
-
-# Local-only planning / analysis artifacts
-PROJECT_CONTEXT.md
-docs/
-graphify-out/
-*.log
 *.o
+
+# IDE / editor
+.cache/
+.deps/
+.vscode/
+.idea/
+
+# Environment secrets
+.env
+
+# Compile database
+compile_commands.json
+
+# Logs
+*.log
+
+# MCP plugin data (agentmemory)
+data/
+
+# Codegraph index
+.codegraph/
+
+# Test binaries
 test/testjson/testjson

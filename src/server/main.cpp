@@ -26,20 +26,24 @@ int main(int argc, char **argv) {
   char *ip = argv[1];
   uint16_t port = atoi(argv[2]);
 
+  // 初始化日志系统
   if (!Logger::GetInstance().Init(CHATSERVER_LOG_DIR, "chatserver",
                                   std::to_string(port))) {
     std::cerr << "logger init failed! log dir: " << CHATSERVER_LOG_DIR << "\n";
     exit(EXIT_FAILURE);
   }
 
+  // 初始化 ChatService
   ChatService::instance();
 
+  // 注册 Ctrl+C 退出处理函数，确保服务器在接收到 SIGINT 信号时能够正确地重置业务状态并退出
   std::signal(SIGINT, resetHandler);
 
+  // 创建 Muduo EventLoop
   muduo::net::EventLoop loop;
-  // 官方 muduo InetAddress(StringArg ip, uint16_t port) — ip 在前，port 在后
+  // 创建服务器地址对象，绑定指定的ip和port
   muduo::net::InetAddress addr(ip, port);
-
+  // 创建 ChatServer 对象，传入事件循环对象、服务器地址和服务器名称
   ChatServer server(&loop, addr, "ChatServer");
 
   server.start();

@@ -1,30 +1,17 @@
-set(
-    SRC_FILES
+# src/server/CMakeLists.txt
+# 只负责 ChatServer 可执行文件。
+# model 库在 cmake/BridgeImModels.cmake 中定义。
+# 外部依赖在 cmake/ProjectDependencies.cmake 中统一查找。
+
+set(SRC_FILES
     main.cpp
     logger.cpp
     chatserver.cpp
     chatservice.cpp
-    model/usermodel.cpp
-    model/offlinemessagemodel.cpp
-    model/friendmodel.cpp
-    model/friendrequestmodel.cpp
-    model/groupmodel.cpp
-    model/grouprequestmodel.cpp
     redis/redis.cpp
 )
 
-# 生成可执行文件
 add_executable(ChatServer ${SRC_FILES})
-
-find_library(CHATSERVER_MYSQLCLIENT_LIBRARY mysqlclient)
-if (NOT CHATSERVER_MYSQLCLIENT_LIBRARY)
-    message(FATAL_ERROR "mysqlclient library not found. Install default-libmysqlclient-dev.")
-endif()
-
-find_library(CHATSERVER_HIREDIS_LIBRARY hiredis)
-if (NOT CHATSERVER_HIREDIS_LIBRARY)
-    message(FATAL_ERROR "hiredis library not found. Install libhiredis-dev.")
-endif()
 
 target_include_directories(ChatServer PRIVATE
     ${CMAKE_SOURCE_DIR}/include
@@ -43,8 +30,11 @@ set_target_properties(ChatServer PROPERTIES
 
 target_link_libraries(ChatServer PRIVATE
     bridgeim_common
+    bridgeim_server_models
     chatserver_muduo
     nlohmann_json::nlohmann_json
     ${CHATSERVER_MYSQLCLIENT_LIBRARY}
+    ${CHATSERVER_HIREDIS_LIBRARY}
     Threads::Threads
-    ${CHATSERVER_HIREDIS_LIBRARY})
+)
+

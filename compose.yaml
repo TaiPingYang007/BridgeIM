@@ -24,6 +24,27 @@ services:
     networks:
       - chatserver_net
 
+  # ZooKeeper: 复用 03_rpc_framework 项目的容器，端口 2181
+  # 如需独立启动，取消下方注释并停掉 03 的 ZK 容器
+  # zookeeper:
+  #   image: zookeeper:3.9.3
+  #   ports:
+  #     - "2181:2181"
+  #   environment:
+  #     ZOO_4LW_COMMANDS_WHITELIST: "srvr,ruok"
+  #   volumes:
+  #     - zk_data:/data
+  #     - zk_datalog:/datalog
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep imok"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 10
+  #     start_period: 10s
+  #   restart: unless-stopped
+  #   networks:
+  #     - chatserver_net
+
   nginx:
     image: nginx:1.27-alpine
     ports:
@@ -38,6 +59,8 @@ services:
 
 volumes:
   redis_data:
+  zk_data:
+  zk_datalog:
 
 networks:
   chatserver_net:

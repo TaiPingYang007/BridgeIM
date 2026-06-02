@@ -1,8 +1,68 @@
 #include "../../include/server/chatservice.hpp"
 #include "../../include/public.hpp"
 #include "../../include/server/logger.h"
+#include "mprpcchannel.h"
+#include "mprpccontroller.h"
+#include "offline_message.pb.h"
 #include <cstdlib>
 #include <mutex>
+#include <string>
+#include <vector>
+
+namespace {
+
+bool insertOfflineMessageByRpc(int userid, const std::string &msg) {
+  offline_message::offline_message_service_Stub stub(new MprpcChannel());
+  offline_message::offline_message_insert_request request;
+  request.set_userid(userid);
+  request.set_msg(msg);
+  offline_message::offline_message_insert_response response;
+  MprpcController controller;
+  stub.insert(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("insertOfflineMessage rpc failed: %s, fallback to local",
+              controller.ErrorText().c_str());
+    return false;
+  }
+  return response.code().errcode() == 0;
+}
+
+std::vector<std::string> queryOfflineMessagesByRpc(int userid) {
+  offline_message::offline_message_service_Stub stub(new MprpcChannel());
+  offline_message::offline_message_query_request request;
+  request.set_userid(userid);
+  offline_message::offline_message_query_response response;
+  MprpcController controller;
+  stub.query(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("queryOfflineMessages rpc failed: %s, fallback to local",
+              controller.ErrorText().c_str());
+    return {};
+  }
+  std::vector<std::string> result;
+  const offline_message::offlineMessage &msgs = response.messages();
+  for (int i = 0; i < msgs.msg_size(); ++i) {
+    result.push_back(msgs.msg(i));
+  }
+  return result;
+}
+
+bool removeOfflineMessagesByRpc(int userid) {
+  offline_message::offline_message_service_Stub stub(new MprpcChannel());
+  offline_message::offline_message_remove_request request;
+  request.set_userid(userid);
+  offline_message::offline_message_remove_response response;
+  MprpcController controller;
+  stub.remove(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("removeOfflineMessages rpc failed: %s, fallback to local",
+              controller.ErrorText().c_str());
+    return false;
+  }
+  return response.code().errcode() == 0;
+}
+
+} // namespace
 
 // 获取单例对象的接口函数
 ChatService *ChatService::instance() {
@@ -102,7 +162,7 @@ void ChatService::deliverMessage(int targetId, const std::string &payload) {
     return;
   }
   // 目标用户离线，存储离线消息
-  _offlineMsgModel.insert(targetId, payload);
+  insertOfflineMessageByRpc(targetId, payload);
 }
 
 // 服务器异常，业务重置方法
@@ -189,11 +249,11 @@ void ChatService::login(const muduo::net::TcpConnectionPtr &conn,
       {"errmsg", "登陆成功！\n"}};
 
   // 查询用户是否有离线消息
-  std::vector<std::string> offlineMsgs = _offlineMsgModel.query(user.getId());
+  std::vector<std::string> offlineMsgs = queryOfflineMessagesByRpc(user.getId());
   if (!offlineMsgs.empty()) {
     response["offlinemsg"] = offlineMsgs;
     // 读取用户的离线消息后，把该用户的所有离线消息删除掉
-    _offlineMsgModel.remove(user.getId());
+    removeOfflineMessagesByRpc(user.getId());
   }
 
   // 查询该用户的好友信息并返回
@@ -688,5 +748,5 @@ void ChatService::handleRedisSubscribeMessage(int userid, std::string msg) {
   }
 
   // 存储用户的离线消息
-  _offlineMsgModel.insert(userid, msg);
+  insertOfflineMessageByRpc(userid, msg);
 }

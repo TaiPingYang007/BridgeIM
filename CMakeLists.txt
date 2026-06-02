@@ -4,16 +4,17 @@ project(BridgeIM CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# 配置编译选项
 add_compile_options(-Wall -g)
-
-# 配置最终的可执行文件路径
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
 find_package(Threads REQUIRED)
+find_package(Protobuf REQUIRED)
 
 include(${CMAKE_SOURCE_DIR}/cmake/ProjectDependencies.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/BridgeImProto.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/BridgeImModels.cmake)
 
-# 加载子目录
 add_subdirectory(src)
+

@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package offline_message;
+
+option cc_generic_services = true;
+
+message resultCode {
+    int32 errcode = 1;
+    bytes errmsg = 2;
+}
+
+message offline_message_insert_request {
+    int32 userid = 1;
+    bytes msg = 2;
+}
+
+message offline_message_insert_response {
+    resultCode code = 1;
+}
+
+message offline_message_query_request {
+    int32 userid = 1;
+}
+
+message offlineMessage {
+    repeated bytes msg = 1;
+}
+
+message offline_message_query_response {
+    resultCode code = 1;
+    offlineMessage messages = 2;
+}
+
+message offline_message_remove_request {
+    int32 userid = 1;
+}
+
+message offline_message_remove_response {
+    resultCode code = 1;
+}
+
+service offline_message_service {
+    rpc insert(offline_message_insert_request) returns (offline_message_insert_response);
+    rpc query(offline_message_query_request) returns (offline_message_query_response);
+    rpc remove(offline_message_remove_request) returns (offline_message_remove_response);
+  
+}

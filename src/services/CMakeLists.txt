@@ -1,1 +1,2 @@
 add_subdirectory(offline_message_service)
+add_subdirectory(friend_service)

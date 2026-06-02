@@ -5,7 +5,6 @@
 
 set(SRC_FILES
     main.cpp
-    logger.cpp
     chatserver.cpp
     chatservice.cpp
     redis/redis.cpp

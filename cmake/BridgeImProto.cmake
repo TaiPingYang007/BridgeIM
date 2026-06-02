@@ -32,3 +32,34 @@ target_include_directories(bridgeim_proto_offline_message PUBLIC
 target_link_libraries(bridgeim_proto_offline_message PUBLIC
     protobuf::libprotobuf
 )
+
+# ── friend_service.proto ────────────────────────────────────────────────────────
+
+set(BRIDGEIM_FRIEND_SERVICE_PROTO "${PROJECT_SOURCE_DIR}/proto/friend_service.proto")
+set(BRIDGEIM_FRIEND_SERVICE_PROTO_SRC
+    "${BRIDGEIM_GENERATED_PROTO_DIR}/friend_service.pb.cc")
+set(BRIDGEIM_FRIEND_SERVICE_PROTO_HDR
+    "${BRIDGEIM_GENERATED_PROTO_DIR}/friend_service.pb.h")
+
+add_custom_command(
+    OUTPUT
+        "${BRIDGEIM_FRIEND_SERVICE_PROTO_SRC}"
+        "${BRIDGEIM_FRIEND_SERVICE_PROTO_HDR}"
+    COMMAND protobuf::protoc
+        --proto_path=${PROJECT_SOURCE_DIR}/proto
+        --cpp_out=${BRIDGEIM_GENERATED_PROTO_DIR}
+        ${BRIDGEIM_FRIEND_SERVICE_PROTO}
+    DEPENDS "${BRIDGEIM_FRIEND_SERVICE_PROTO}"
+    COMMENT "Generating friend_service protobuf sources"
+    VERBATIM
+)
+
+add_library(bridgeim_proto_friend_service STATIC
+    "${BRIDGEIM_FRIEND_SERVICE_PROTO_SRC}"
+)
+target_include_directories(bridgeim_proto_friend_service PUBLIC
+    "${BRIDGEIM_GENERATED_PROTO_DIR}"
+)
+target_link_libraries(bridgeim_proto_friend_service PUBLIC
+    protobuf::libprotobuf
+)

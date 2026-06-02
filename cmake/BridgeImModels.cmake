@@ -9,12 +9,18 @@ add_library(bridgeim_server_models STATIC
     ${CMAKE_SOURCE_DIR}/src/server/model/friendrequestmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/server/model/groupmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/server/model/grouprequestmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/logger.cpp
 )
 
 target_include_directories(bridgeim_server_models PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/server
     ${CMAKE_SOURCE_DIR}/include/server/model
+    ${CMAKE_SOURCE_DIR}/include/server/redis
+)
+
+target_compile_definitions(bridgeim_server_models PUBLIC
+    CHATSERVER_LOG_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
 )
 
 target_link_libraries(bridgeim_server_models PUBLIC

@@ -34,6 +34,7 @@ add_library(bridgeim_common_rpc INTERFACE)
 target_link_libraries(bridgeim_common_rpc INTERFACE
     bridgeim_mprpc
     bridgeim_proto_offline_message
+    bridgeim_proto_friend_service
     chatserver_muduo
     ${BRIDGEIM_PROTOBUF_LIBRARY}
     ${BRIDGEIM_ZOOKEEPER_LIBRARY}

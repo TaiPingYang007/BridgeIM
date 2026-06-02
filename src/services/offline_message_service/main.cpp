@@ -2,11 +2,16 @@
 #include "mprpcapplication.h"
 #include "mprpcprovider.h"
 #include "server/model/offlinemessagemodel.hpp"
+#include "server/logger.h"
 
 #include <google/protobuf/stubs/callback.h>
 
 #include <string>
 #include <vector>
+
+#ifndef CHATSERVER_LOG_DIR
+#define CHATSERVER_LOG_DIR "."
+#endif
 
 namespace {
 
@@ -77,6 +82,11 @@ private:
 
 int main(int argc, char **argv) {
   MprpcApplication::Init(argc, argv);
+
+  if (!Logger::GetInstance().Init(CHATSERVER_LOG_DIR, "offline_msg_service", "")) {
+    std::cerr << "logger init failed! log dir: " << CHATSERVER_LOG_DIR << "\n";
+    exit(EXIT_FAILURE);
+  }
 
   RpcProvider provider;
   provider.NotifyService(new OfflineMessageServiceImpl());

@@ -4,12 +4,15 @@
 #include "mprpcchannel.h"
 #include "mprpccontroller.h"
 #include "offline_message.pb.h"
+#include "friend_service.pb.h"
 #include <cstdlib>
 #include <mutex>
 #include <string>
 #include <vector>
 
 namespace {
+
+// ── OfflineMessage RPC wrappers ──────────────────────────────────────────────
 
 bool insertOfflineMessageByRpc(int userid, const std::string &msg) {
   offline_message::offline_message_service_Stub stub(new MprpcChannel());
@@ -60,6 +63,151 @@ bool removeOfflineMessagesByRpc(int userid) {
     return false;
   }
   return response.code().errcode() == 0;
+}
+
+// ── FriendService RPC wrappers ──────────────────────────────────────────────
+
+// proto QueryStatus → C++ QueryStatus
+QueryStatus fromProtoQueryStatus(::friend_service::QueryStatus ps) {
+  switch (ps) {
+  case ::friend_service::QS_OK:
+    return QueryStatus::Ok;
+  case ::friend_service::QS_NOT_FOUND:
+    return QueryStatus::NotFound;
+  default:
+    return QueryStatus::DbError;
+  }
+}
+
+bool isUserExistByRpc(int friendid) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::is_user_exist_request request;
+  request.set_friendid(friendid);
+  ::friend_service::is_user_exist_response response;
+  MprpcController controller;
+  stub.isUserExist(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("isUserExist rpc failed: %s", controller.ErrorText().c_str());
+    return false;
+  }
+  return response.result().status() == ::friend_service::QS_OK &&
+         response.result().value();
+}
+
+bool isFriendByRpc(int userid, int friendid) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::is_friend_request request;
+  request.set_userid(userid);
+  request.set_friendid(friendid);
+  ::friend_service::is_friend_response response;
+  MprpcController controller;
+  stub.isFriend(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("isFriend rpc failed: %s", controller.ErrorText().c_str());
+    return false;
+  }
+  return response.result().status() == ::friend_service::QS_OK &&
+         response.result().value();
+}
+
+void insertFriendByRpc(int userid, int friendid) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::insert_friend_request request;
+  request.set_userid(userid);
+  request.set_friendid(friendid);
+  ::friend_service::insert_friend_response response;
+  MprpcController controller;
+  stub.insertFriend(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("insertFriend rpc failed: %s", controller.ErrorText().c_str());
+  }
+}
+
+std::vector<User> queryFriendsByRpc(int userid) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::query_friends_request request;
+  request.set_userid(userid);
+  ::friend_service::query_friends_response response;
+  MprpcController controller;
+  stub.queryFriends(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("queryFriends rpc failed: %s", controller.ErrorText().c_str());
+    return {};
+  }
+  std::vector<User> friends;
+  for (int i = 0; i < response.friends_size(); ++i) {
+    const ::friend_service::FriendInfo &info = response.friends(i);
+    friends.emplace_back(info.id(), info.name(), "", info.state());
+  }
+  return friends;
+}
+
+bool addFriendRequestByRpc(int userid, int targetid) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::add_friend_request_req request;
+  request.set_userid(userid);
+  request.set_targetid(targetid);
+  ::friend_service::add_friend_request_resp response;
+  MprpcController controller;
+  stub.addFriendRequest(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("addFriendRequest rpc failed: %s",
+              controller.ErrorText().c_str());
+    return false;
+  }
+  return response.code().errcode() == 0;
+}
+
+BoolQueryResult isPendingRequestByRpc(int userid, int targetid) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::is_pending_request_req request;
+  request.set_userid(userid);
+  request.set_targetid(targetid);
+  ::friend_service::is_pending_request_resp response;
+  MprpcController controller;
+  stub.isPendingRequest(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("isPendingRequest rpc failed: %s",
+              controller.ErrorText().c_str());
+    return {QueryStatus::DbError, false};
+  }
+  return {fromProtoQueryStatus(response.result().status()),
+          response.result().value()};
+}
+
+bool updateRequestStatusByRpc(int userid, int targetid,
+                              const std::string &status) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::update_request_status_req request;
+  request.set_userid(userid);
+  request.set_targetid(targetid);
+  request.set_status(status);
+  ::friend_service::update_request_status_resp response;
+  MprpcController controller;
+  stub.updateRequestStatus(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("updateRequestStatus rpc failed: %s",
+              controller.ErrorText().c_str());
+    return false;
+  }
+  return response.code().errcode() == 0;
+}
+
+RequestStatusResult queryRequestStatusByRpc(int userid, int targetid) {
+  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  ::friend_service::query_request_status_req request;
+  request.set_userid(userid);
+  request.set_targetid(targetid);
+  ::friend_service::query_request_status_resp response;
+  MprpcController controller;
+  stub.queryRequestStatus(&controller, &request, &response, nullptr);
+  if (controller.Failed()) {
+    LOG_ERROR("queryRequestStatus rpc failed: %s",
+              controller.ErrorText().c_str());
+    return {QueryStatus::DbError, ""};
+  }
+  return {fromProtoQueryStatus(response.result().status()),
+          response.result().value()};
 }
 
 } // namespace
@@ -257,7 +405,7 @@ void ChatService::login(const muduo::net::TcpConnectionPtr &conn,
   }
 
   // 查询该用户的好友信息并返回
-  std::vector<User> friends = _friendModel.query(user.getId());
+  std::vector<User> friends = queryFriendsByRpc(user.getId());
   if (!friends.empty()) {
     std::vector<std::string> friendJsonList;
     for (User &friendUser : friends) {
@@ -373,7 +521,7 @@ void ChatService::oneChat(const muduo::net::TcpConnectionPtr &conn,
   int userid = js["userid"].get<int>();
   int toid = js["to"].get<int>();
 
-  if (!_friendModel.isFriend(userid, toid)) {
+  if (!isFriendByRpc(userid, toid)) {
     // userid和toid之间不是好友，不允许发消息
     nlohmann::json response;
     response["errno"] = 1;
@@ -404,7 +552,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
   }
 
   // 判断好友是否存在
-  if (!_friendModel.isUserExist(friendid)) {
+  if (!isUserExistByRpc(friendid)) {
     nlohmann::json response;
     response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
     response["errno"] = 1;
@@ -414,7 +562,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
   }
 
   // 判断是否已经是好友了
-  if (_friendModel.isFriend(userid, friendid)) {
+  if (isFriendByRpc(userid, friendid)) {
     nlohmann::json response;
     response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
     response["errno"] = 2;
@@ -424,7 +572,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
   }
 
   RequestStatusResult result =
-      _friendRequestModel.queryRequestStatus(userid, friendid);
+      queryRequestStatusByRpc(userid, friendid);
 
   if (result.status == QueryStatus::DbError) {
     nlohmann::json response;
@@ -435,7 +583,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
     return;
   } else if (result.status == QueryStatus::NotFound) {
     // 如果是未写入数据库的好友请求，写入数据库
-    if (!_friendRequestModel.addFriendRequest(userid, friendid)) {
+    if (!addFriendRequestByRpc(userid, friendid)) {
       nlohmann::json response;
       response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
       response["errno"] = 5;
@@ -454,8 +602,7 @@ void ChatService::addFriend(const muduo::net::TcpConnectionPtr &conn,
       return;
     } else if (result.value == "rejected") {
       // 如果是拒绝状态应该更新状态并重新发送
-      if (!_friendRequestModel.updateRequestStatus(userid, friendid,
-                                                   "pending")) {
+      if (!updateRequestStatusByRpc(userid, friendid, "pending")) {
         nlohmann::json response;
         response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
         response["errno"] = 5;
@@ -484,7 +631,7 @@ void ChatService::addFriendHandle(const muduo::net::TcpConnectionPtr &conn,
   response["msgid"] = static_cast<int>(EnMsgType::ADD_FRIEND_RESPONSE);
 
   BoolQueryResult result =
-      _friendRequestModel.isPendingRequest(userid, friendid);
+      isPendingRequestByRpc(userid, friendid);
   if (result.status == QueryStatus::DbError) {
     response["errno"] = 2;
     response["errmsg"] = "System busy, please try again later.";
@@ -500,22 +647,21 @@ void ChatService::addFriendHandle(const muduo::net::TcpConnectionPtr &conn,
     // pending状态
     if (action == "accept") {
       // 更新好友请求表
-      if (!_friendRequestModel.updateRequestStatus(userid, friendid,
-                                                   "accepted")) {
+      if (!updateRequestStatusByRpc(userid, friendid, "accepted")) {
         response["errno"] = 5;
         response["errmsg"] = "System busy, please try again later.";
         sendJson(conn, response);
         return;
       }
       // 更新好友关系表
-      _friendModel.insert(userid, friendid);
-      _friendModel.insert(friendid, userid);
+      insertFriendByRpc(userid, friendid);
+      insertFriendByRpc(friendid, userid);
       response["errno"] = 0;
       response["errmsg"] =
           "The user has accepted your friend request. You can now chat!";
     } else {
       // 拒绝，更新好友请求表
-      _friendRequestModel.updateRequestStatus(userid, friendid, "rejected");
+      updateRequestStatusByRpc(userid, friendid, "rejected");
       response["errno"] = 3;
       response["errmsg"] = "The user has declined your friend request.";
     }

@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package friend_service;
+
+option cc_generic_services = true;
+
+// ===== 公共类型 =====
+
+// protobuf enum 值在同一包内共享命名空间，加 QS_ 前缀防冲突
+enum QueryStatus {
+    QS_OK = 0;
+    QS_NOT_FOUND = 1;
+    QS_DB_ERROR = 2;
+}
+
+message resultCode {
+    int32 errcode = 1;
+    bytes errmsg = 2;
+}
+
+// 等价于 C++ 的 BoolQueryResult { QueryStatus status; bool value; }
+message BoolQueryResult {
+    QueryStatus status = 1;
+    bool value = 2;
+}
+
+// 等价于 C++ 的 RequestStatusResult { QueryStatus status; string value; }
+// value 用 string 而非 enum：数据库状态可能扩展（如 "expired"），string 更宽松
+message RequestStatusResult {
+    QueryStatus status = 1;
+    string value = 2;
+}
+
+// 等价于 C++ 的 User（只含好友查询需要的字段：id/name/state）
+message FriendInfo {
+    int32 id = 1;
+    string name = 2;
+    string state = 3;
+}
+
+// ===== isUserExist =====
+
+message is_user_exist_request {
+    int32 friendid = 1;
+}
+
+message is_user_exist_response {
+    BoolQueryResult result = 1;
+}
+
+// ===== isFriend =====
+
+message is_friend_request {
+    int32 userid = 1;
+    int32 friendid = 2;
+}
+
+message is_friend_response {
+    BoolQueryResult result = 1;
+}
+
+// ===== insert (好友关系，双向) =====
+
+message insert_friend_request {
+    int32 userid = 1;
+    int32 friendid = 2;
+}
+
+message insert_friend_response {
+    resultCode code = 1;
+}
+
+// ===== query (好友列表) =====
+
+message query_friends_request {
+    int32 userid = 1;
+}
+
+message query_friends_response {
+    resultCode code = 1;
+    repeated FriendInfo friends = 2;
+}
+
+// ===== addFriendRequest =====
+
+message add_friend_request_req {
+    int32 userid = 1;
+    int32 targetid = 2;
+}
+
+message add_friend_request_resp {
+    resultCode code = 1;
+}
+
+// ===== isPendingRequest =====
+
+message is_pending_request_req {
+    int32 userid = 1;
+    int32 targetid = 2;
+}
+
+message is_pending_request_resp {
+    BoolQueryResult result = 1;
+}
+
+// ===== updateRequestStatus =====
+
+message update_request_status_req {
+    int32 userid = 1;
+    int32 targetid = 2;
+    string status = 3;
+}
+
+message update_request_status_resp {
+    resultCode code = 1;
+}
+
+// ===== queryRequestStatus =====
+
+message query_request_status_req {
+    int32 userid = 1;
+    int32 targetid = 2;
+}
+
+message query_request_status_resp {
+    RequestStatusResult result = 1;
+}
+
+// ===== Service =====
+
+service friend_service {
+    rpc isUserExist(is_user_exist_request) returns (is_user_exist_response);
+    rpc isFriend(is_friend_request) returns (is_friend_response);
+    rpc insertFriend(insert_friend_request) returns (insert_friend_response);
+    rpc queryFriends(query_friends_request) returns (query_friends_response);
+    rpc addFriendRequest(add_friend_request_req) returns (add_friend_request_resp);
+    rpc isPendingRequest(is_pending_request_req) returns (is_pending_request_resp);
+    rpc updateRequestStatus(update_request_status_req) returns (update_request_status_resp);
+    rpc queryRequestStatus(query_request_status_req) returns (query_request_status_resp);
+}

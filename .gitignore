@@ -12,9 +12,6 @@ bin/
 # Environment secrets
 .env
 
-# Compile database
-compile_commands.json
-
 # Logs
 *.log
 

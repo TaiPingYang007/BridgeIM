@@ -6,7 +6,8 @@
 #include <queue>
 
 // 异步写日志使用的线程安全队列
-template <class T> class LockQueue {
+template <class T> 
+class LockQueue {
 public:
   void Push(const T &msg) {
     {

@@ -15,7 +15,8 @@ namespace {
 // ── OfflineMessage RPC wrappers ──────────────────────────────────────────────
 
 bool insertOfflineMessageByRpc(int userid, const std::string &msg) {
-  offline_message::offline_message_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  offline_message::offline_message_service_Stub stub(&mprpcChannel);
   offline_message::offline_message_insert_request request;
   request.set_userid(userid);
   request.set_msg(msg);
@@ -31,7 +32,8 @@ bool insertOfflineMessageByRpc(int userid, const std::string &msg) {
 }
 
 std::vector<std::string> queryOfflineMessagesByRpc(int userid) {
-  offline_message::offline_message_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  offline_message::offline_message_service_Stub stub(&mprpcChannel);
   offline_message::offline_message_query_request request;
   request.set_userid(userid);
   offline_message::offline_message_query_response response;
@@ -51,7 +53,8 @@ std::vector<std::string> queryOfflineMessagesByRpc(int userid) {
 }
 
 bool removeOfflineMessagesByRpc(int userid) {
-  offline_message::offline_message_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  offline_message::offline_message_service_Stub stub(&mprpcChannel);
   offline_message::offline_message_remove_request request;
   request.set_userid(userid);
   offline_message::offline_message_remove_response response;
@@ -80,7 +83,8 @@ QueryStatus fromProtoQueryStatus(::friend_service::QueryStatus ps) {
 }
 
 bool isUserExistByRpc(int friendid) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::is_user_exist_request request;
   request.set_friendid(friendid);
   ::friend_service::is_user_exist_response response;
@@ -95,7 +99,8 @@ bool isUserExistByRpc(int friendid) {
 }
 
 bool isFriendByRpc(int userid, int friendid) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::is_friend_request request;
   request.set_userid(userid);
   request.set_friendid(friendid);
@@ -111,7 +116,8 @@ bool isFriendByRpc(int userid, int friendid) {
 }
 
 void insertFriendByRpc(int userid, int friendid) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::insert_friend_request request;
   request.set_userid(userid);
   request.set_friendid(friendid);
@@ -124,7 +130,8 @@ void insertFriendByRpc(int userid, int friendid) {
 }
 
 std::vector<User> queryFriendsByRpc(int userid) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::query_friends_request request;
   request.set_userid(userid);
   ::friend_service::query_friends_response response;
@@ -143,7 +150,8 @@ std::vector<User> queryFriendsByRpc(int userid) {
 }
 
 bool addFriendRequestByRpc(int userid, int targetid) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::add_friend_request_req request;
   request.set_userid(userid);
   request.set_targetid(targetid);
@@ -159,7 +167,8 @@ bool addFriendRequestByRpc(int userid, int targetid) {
 }
 
 BoolQueryResult isPendingRequestByRpc(int userid, int targetid) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::is_pending_request_req request;
   request.set_userid(userid);
   request.set_targetid(targetid);
@@ -177,7 +186,8 @@ BoolQueryResult isPendingRequestByRpc(int userid, int targetid) {
 
 bool updateRequestStatusByRpc(int userid, int targetid,
                               const std::string &status) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::update_request_status_req request;
   request.set_userid(userid);
   request.set_targetid(targetid);
@@ -194,7 +204,8 @@ bool updateRequestStatusByRpc(int userid, int targetid,
 }
 
 RequestStatusResult queryRequestStatusByRpc(int userid, int targetid) {
-  ::friend_service::friend_service_Stub stub(new MprpcChannel());
+  MprpcChannel mprpcChannel;
+  ::friend_service::friend_service_Stub stub(&mprpcChannel);
   ::friend_service::query_request_status_req request;
   request.set_userid(userid);
   request.set_targetid(targetid);

@@ -123,6 +123,31 @@ docker compose ps
 - `redis`
 - `nginx`
 
+## 构建前置：mprpc 依赖
+
+`FriendService` / `OfflineMessageService` 等 RPC 目标依赖 mprpc 静态库，外加 protobuf 与 zookeeper_mt 开发库。mprpc 源码已作为 **git submodule** 内置在 `third_party/mprpc`，因此从干净 clone 即可构建：
+
+```bash
+# 1. 拉取含子模块的源码
+git clone --recursive <repo-url>
+# 若已普通 clone，则补拉子模块：
+git submodule update --init --recursive
+
+# 2. 构建（autobuild 在 mprpc 未就绪时会自动构建它）
+./autobuild.sh
+```
+
+`autobuild.sh` 检测不到 mprpc 时，会自动调用 `scripts/build-mprpc.sh` 把子模块编译进 `third_party/mprpc/dist`。也可单独执行：`./scripts/build-mprpc.sh`。
+
+CMake 解析 mprpc 的优先级（见 `cmake/Mprpc.cmake`）：
+
+1. `-DMPRPC_ROOT=/path/to/mprpc`
+2. 环境变量 `MPRPC_ROOT`
+3. 内置子模块构建产物 `third_party/mprpc/dist`
+4. 姊妹项目 `../03_rpc_framework/dist/mprpc`（本地并排开发便捷默认）
+
+系统还需安装 protobuf 与 ZooKeeper C 客户端开发库（`zookeeper_mt`）；都找不到时 CMake 会给出明确报错。
+
 ## 本地构建
 
 执行：

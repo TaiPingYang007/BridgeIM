@@ -57,7 +57,6 @@
   - `DbSession`
   - `QueryResult`
 - 当前配置入口优先兼容 `.env`，不再要求日常开发显式准备 `connection_pool.conf`
-- `src/server/db` 暂时保留作历史对照，但当前主路径已经优先走 `common/db`
 
 ## 本地开发前提
 

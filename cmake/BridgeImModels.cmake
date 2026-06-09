@@ -20,7 +20,7 @@ target_include_directories(bridgeim_server_models PUBLIC
 )
 
 target_compile_definitions(bridgeim_server_models PUBLIC
-    CHATSERVER_LOG_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    CHATSERVER_LOG_DIR="${CMAKE_SOURCE_DIR}/logs"
 )
 
 target_link_libraries(bridgeim_server_models PUBLIC

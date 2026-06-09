@@ -14,6 +14,7 @@ bin/
 
 # Logs
 *.log
+/logs/
 
 # Local project context
 PROJECT_CONTEXT.md

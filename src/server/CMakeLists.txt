@@ -20,7 +20,7 @@ target_include_directories(ChatServer PRIVATE
 )
 
 target_compile_definitions(ChatServer PRIVATE
-    CHATSERVER_LOG_DIR="${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    CHATSERVER_LOG_DIR="${CMAKE_SOURCE_DIR}/logs"
 )
 
 set_target_properties(ChatServer PROPERTIES

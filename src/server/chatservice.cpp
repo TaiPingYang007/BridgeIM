@@ -24,7 +24,7 @@ bool insertOfflineMessageByRpc(int userid, const std::string &msg) {
   MprpcController controller;
   stub.insert(&controller, &request, &response, nullptr);
   if (controller.Failed()) {
-    LOG_ERROR("insertOfflineMessage rpc failed: %s, fallback to local",
+    LOG_ERROR("insertOfflineMessage rpc failed: %s",
               controller.ErrorText().c_str());
     return false;
   }
@@ -40,7 +40,7 @@ std::vector<std::string> queryOfflineMessagesByRpc(int userid) {
   MprpcController controller;
   stub.query(&controller, &request, &response, nullptr);
   if (controller.Failed()) {
-    LOG_ERROR("queryOfflineMessages rpc failed: %s, fallback to local",
+    LOG_ERROR("queryOfflineMessages rpc failed: %s",
               controller.ErrorText().c_str());
     return {};
   }
@@ -61,7 +61,7 @@ bool removeOfflineMessagesByRpc(int userid) {
   MprpcController controller;
   stub.remove(&controller, &request, &response, nullptr);
   if (controller.Failed()) {
-    LOG_ERROR("removeOfflineMessages rpc failed: %s, fallback to local",
+    LOG_ERROR("removeOfflineMessages rpc failed: %s",
               controller.ErrorText().c_str());
     return false;
   }
@@ -321,7 +321,9 @@ void ChatService::deliverMessage(int targetId, const std::string &payload) {
     return;
   }
   // 目标用户离线，存储离线消息
-  insertOfflineMessageByRpc(targetId, payload);
+  if (!insertOfflineMessageByRpc(targetId, payload)) {
+    LOG_ERROR("failed to persist offline message, userid=%d", targetId);
+  }
 }
 
 // 服务器异常，业务重置方法
@@ -905,5 +907,7 @@ void ChatService::handleRedisSubscribeMessage(int userid, std::string msg) {
   }
 
   // 存储用户的离线消息
-  insertOfflineMessageByRpc(userid, msg);
+  if (!insertOfflineMessageByRpc(userid, msg)) {
+    LOG_ERROR("failed to persist redis offline message, userid=%d", userid);
+  }
 }

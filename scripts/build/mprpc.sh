@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Build the vendored mprpc submodule into third_party/mprpc/dist so that
-# BridgeIM's CMake (cmake/Mprpc.cmake) can find it from a fresh clone.
+# BridgeIM's CMake (cmake/MprpcDependency.cmake) can find it from a fresh clone.
 #
-# Usage: ./scripts/build-mprpc.sh
+# Usage: ./scripts/build/mprpc.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MPRPC_SRC="${PROJECT_ROOT}/third_party/mprpc"
 MPRPC_BUILD="${MPRPC_SRC}/build"
 MPRPC_DIST="${MPRPC_SRC}/dist"

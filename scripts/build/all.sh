@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="${SCRIPT_DIR}"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 
 if [[ "${1:-}" == "--clean" ]]; then
@@ -21,7 +21,7 @@ if [[ -z "${MPRPC_ROOT:-}" \
   if [[ ! -f "${PROJECT_ROOT}/third_party/mprpc/CMakeLists.txt" ]]; then
     git -C "${PROJECT_ROOT}" submodule update --init --recursive
   fi
-  "${SCRIPT_DIR}/build-mprpc.sh"
+  "${SCRIPT_DIR}/mprpc.sh"
 fi
 
 cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release

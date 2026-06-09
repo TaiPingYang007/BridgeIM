@@ -12,9 +12,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 find_package(Threads REQUIRED)
 find_package(Protobuf REQUIRED)
 
-include(${CMAKE_SOURCE_DIR}/cmake/ProjectDependencies.cmake)
-include(${CMAKE_SOURCE_DIR}/cmake/BridgeImProto.cmake)
-include(${CMAKE_SOURCE_DIR}/cmake/BridgeImModels.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/Dependencies.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/ProtobufTargets.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/ServerModels.cmake)
 
 add_subdirectory(src)
 

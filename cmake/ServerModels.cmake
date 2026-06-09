@@ -1,4 +1,4 @@
-# BridgeImModels.cmake
+# ServerModels.cmake
 # 将 server 层共享 model 源文件编译为 bridgeim_server_models 静态库，
 # 供 ChatServer 和各 RPC 服务进程共同链接。
 

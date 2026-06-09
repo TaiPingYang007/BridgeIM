@@ -1,7 +1,7 @@
 # src/server/CMakeLists.txt
 # 只负责 ChatServer 可执行文件。
-# model 库在 cmake/BridgeImModels.cmake 中定义。
-# 外部依赖在 cmake/ProjectDependencies.cmake 中统一查找。
+# model 库在 cmake/ServerModels.cmake 中定义。
+# 外部依赖在 cmake/Dependencies.cmake 中统一查找。
 
 set(SRC_FILES
     main.cpp

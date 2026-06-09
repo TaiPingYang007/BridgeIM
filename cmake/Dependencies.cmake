@@ -1,5 +1,5 @@
-# ProjectDependencies.cmake
-# 统一查找所有外部依赖。按类别：数据库、RPC 框架、网络、序列化、系统库。
+# Dependencies.cmake
+# 统一查找所有外部依赖。按类别：网络、序列化、数据库、RPC 框架、系统库。
 
 # ── Muduo ──────────────────────────────────────────────────────────────────────
 
@@ -65,4 +65,4 @@ endif()
 
 # ── RPC 框架（mprpc + protobuf + zookeeper_mt）────────────────────────────────
 
-include(${CMAKE_SOURCE_DIR}/cmake/Mprpc.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/MprpcDependency.cmake)

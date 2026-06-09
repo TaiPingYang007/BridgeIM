@@ -1,30 +1,28 @@
-# Build
-build/
-bin/
+# Build outputs
+/build/
+/bin/
 *.o
 
-# IDE / editor
-.cache/
-.deps/
-.vscode/
-.idea/
+# Runtime logs
+/logs/
+*.log
 
 # Environment secrets
 .env
 
-# Logs
-*.log
-/logs/
-
-# Local project context
-PROJECT_CONTEXT.md
-CLAUDE.md
-
-# MCP plugin data (agentmemory)
-data/
-
-# Codegraph index
+# Local editor/tooling
+.vscode/
+.idea/
+.cache/
+.deps/
 .codegraph/
+.DS_Store
+
+# Local agent/project context
+CLAUDE.md
+PROJECT_CONTEXT.md
+/data/
+/docs/internal/
 
 # Test binaries
 test/testjson/testjson

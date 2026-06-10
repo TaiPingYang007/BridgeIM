@@ -1,23 +1,96 @@
-# BridgeIM: C++ Instant Messaging Backend
+# BridgeIM — C++ IM 后端
 
-BridgeIM 是一个 C++11 即时通信后端项目，围绕 Muduo 网络库、Nginx 多节点入口、Redis 跨节点消息分发、MySQL 连接池、业务线程池、异步日志和内部 mprpc 服务拆分构建。
+![language](https://img.shields.io/badge/C%2B%2B-11-00599C?logo=cplusplus&logoColor=white)
+![build](https://img.shields.io/badge/build-CMake-064F8C?logo=cmake&logoColor=white)
+![rpc](https://img.shields.io/badge/RPC-Protobuf%20%2B%20ZooKeeper-orange)
+![runtime](https://img.shields.io/badge/runtime-Muduo%20%C2%B7%20Redis%20%C2%B7%20MySQL-informational)
 
-项目当前保留外部客户端协议为 **JSON + newline (`\n`)**，同时把部分后端领域能力拆成 Protobuf/mprpc 内部服务，形成一个可本地运行、可演示、可继续演进的 IM 后端工程样例。
+多节点即时通信后端，技术重点在**网络层与业务层的线程分离、粘包与背压处理、以及内部服务的 RPC 边界设计**。功能覆盖注册登录、单聊、群聊、好友管理与离线消息，可经 Nginx 负载均衡部署为多节点集群，跨节点消息通过 Redis 投递。
 
-## Highlights
+**技术栈**：C++11 · Muduo · Nginx · Redis · MySQL · Protobuf · mprpc · ZooKeeper · Docker Compose
 
-- **Muduo TCP gateway**：`ChatServer` 负责连接管理、换行分帧、JSON 协议解析和业务分发。
-- **Nginx cluster entry**：客户端可通过 `127.0.0.1:8000` 进入两个本地 ChatServer 节点。
-- **Redis cross-node fanout**：跨 ChatServer 节点的在线消息通过 Redis pub/sub 投递。
-- **MySQL connection pool**：数据库访问通过 `common/db` 连接池、`DbSession` 和 `QueryResult` 封装。
-- **Bounded business thread pool**：网络 IO 与业务/数据库操作通过有界线程池隔离。
-- **Async logging**：业务日志写入 `logs/`，避免与 `bin/` 可执行文件混在一起。
-- **Internal RPC services**：好友域和离线消息域已拆成独立 mprpc 服务：
-  - `FriendService`
-  - `OfflineMessageService`
-- **Reproducible mprpc dependency**：mprpc 作为 `third_party/mprpc` git submodule 引入，并可由构建脚本自动编译成本地静态库。
+## 项目概览 · Overview
 
-## Runtime Topology
+- **完整 IM 业务**：注册 / 登录 / 登出、单聊、群聊、好友请求与同意、离线消息。
+- **多节点部署**：客户端经 Nginx 入口接入，两个对等 ChatServer 节点运行，跨节点消息经 Redis 投递。
+- **服务化拆分**：好友域、离线消息域已从主进程拆为独立 RPC 服务（Protobuf + ZooKeeper 注册发现）。
+- **工程规模**：约 5.4k 行 C++11，`./scripts/build/all.sh` 一键构建、`./scripts/demo/bridgeim-demo.sh` 一键起多节点 demo。
+
+技术深度集中在三处：**① 网络/业务线程分离与背压**、**② 粘包分帧**、**③ RPC 服务边界与协议设计**。下面逐条展开。
+
+## 核心亮点 · Highlights
+
+**1. 网络层与业务层线程分离 + 有界线程池 + 背压**
+
+Muduo IO 线程只负责收包、分帧、JSON 解析，所有业务与数据库操作投递到独立的业务线程池执行，避免慢查询阻塞网络层。线程池为**有界队列 + `future` 返回值 + 显式 `shutdown()`**：队列满时**快速失败**并向客户端返回 `server busy`，而非无限堆积；worker 内业务异常被捕获隔离，不会拖垮整个线程。
+代码：[chatserver.cpp:114-131](src/server/chatserver.cpp#L114-L131)、[ThreadPool.cpp](src/common/concurrency/ThreadPool.cpp)
+
+**2. 粘包处理：newline 分帧 + 按连接缓冲**
+
+外部协议是 `\n` 分隔的 JSON 文本帧。每条连接维护独立接收缓冲，`onMessage` 累积字节后循环切出完整帧再交给业务层，正确处理 TCP 粘包/半包；空帧、缺 `msgid`、JSON 解析失败均分类捕获并记录，不影响后续帧。
+代码：[chatserver.cpp:70-146](src/server/chatserver.cpp#L70-L146)
+
+**3. 内部 RPC 服务拆分 + Protobuf 协议设计**
+
+好友域（`FriendService`）和离线消息域（`OfflineMessageService`）拆为独立进程，经 mprpc + Protobuf 通信，ZooKeeper 注册发现。Protobuf 协议带明确的语义设计：用 `QueryStatus` 区分「业务结果（用户不存在）」与「DB 错误」、enum 加前缀规避同包命名空间冲突、请求状态用 `string` 而非 enum 以兼容未来扩展。
+代码：[friend_service.proto](proto/friend_service.proto)、[friend_service/main.cpp](src/services/friend_service/main.cpp)
+
+**4. 支撑设施：Redis 跨节点投递 + MySQL 连接池**
+
+`deliverMessage()` 先查本地在线连接；目标用户在其他节点时经 Redis pub/sub 跨节点投递，离线则落库到离线消息服务。数据库侧用 `DbSession` / `QueryResult` 对连接池做 RAII 封装，避免每请求建连开销。**Redis 只做消息 fanout，ZooKeeper 只做服务发现，职责不混。**
+代码：[redis.cpp](src/server/redis/redis.cpp)、[common/db/](src/common/db/)
+
+## 消息处理路径 · Request Path
+
+一条单聊消息从进入到送达，串起上面四个零件：
+
+```text
+ChatClient
+  └─ Muduo IO 线程：收字节 → 按 \n 分帧 → JSON 解析 → getHandler(msgid)
+       └─ 投递业务线程池（队列满 → 直接回 server busy）
+            └─ ChatService 业务 handler
+                 ├─ 好友校验：RPC 调 FriendService（ZooKeeper 发现）
+                 ├─ 读写用户/消息：MySQL 连接池
+                 └─ deliverMessage：本地在线直发
+                                  / 目标在异节点 → Redis 投递
+                                  / 离线 → 落库 OfflineMessageService
+```
+
+IO 线程只碰网络与分帧，业务/DB/RPC 全在业务线程池里跑——这是整套设计的主线。
+
+## 效果演示 · Demo
+
+![BridgeIM 跨节点单聊](docs/assets/cross-node-chat.png)
+
+上图为真实运行截图：`tpy`(id 2) 登录到节点 `:6002`，发出的单聊 `chat:1:hi,wjx!` 经 **Redis 跨节点**投递，另一节点上的 `wjx`(id 1) 实时收到 `[2]tpy，said:hi,wjx!`。
+
+服务启动时，RPC 服务把每个方法按节点注册进 ZooKeeper，ChatServer 接好 Redis 后开始监听（启动日志摘录）：
+
+```text
+[RPC][INFO] register rpc provider node service=friend_service method=isFriend \
+            path=/mprpc/friend_service/isFriend/providers/provider-0000000006 target=127.0.0.1:7001
+[RPC][INFO] rpc provider start bind=127.0.0.1:7001 advertise=127.0.0.1:7001 threads=4
+[INFO] redis module started successfully
+[INFO] ChatServer started at 0.0.0.0:6000
+```
+
+> 一键复现见 [docs/demo.md](docs/demo.md)。
+
+## 外部协议 · Wire Protocol
+
+客户端与服务端之间是 `\n` 分隔的 JSON 文本帧，`msgid` 标识消息类型（定义见 [public.hpp](include/public.hpp)）。示例：
+
+```jsonc
+// 登录请求（client -> server），msgid=1
+{"msgid":1,"name":"zhangsan","password":"123456"}
+
+// 单聊（client -> server），msgid=6；目标在异节点时经 Redis 原样转发给 B
+{"msgid":6,"userid":13,"name":"zhangsan","to":15,"msg":"hi lisi","time":"2026-06-10 10:24:01"}
+```
+
+内部服务间通信改用 Protobuf（见 [proto/](proto/)）——外部协议求稳定可读，内部 RPC 求高效，协议边界显式分层。
+
+## 架构设计 · Architecture
 
 ```text
 ChatClient
@@ -36,262 +109,71 @@ ZooKeeper :2181
   -> RPC service registration/discovery
 ```
 
-ZooKeeper 只负责 RPC 服务注册发现；Redis 负责 ChatServer 节点之间的消息 fanout。
+**关键设计决策**
 
-## Repository Layout
+| 决策 | 理由 |
+|------|------|
+| Live TCP 连接所有权留在 ChatServer | 在线状态、跨节点路由、连接清理需要整体协调；过早把连接所有权下沉到 RPC 会引入不必要的分布式复杂度 |
+| Redis 做跨节点 fanout，ZooKeeper 只做服务注册发现 | 职责分离；用 ZooKeeper 做消息 fanout 会引入额外的状态管理负担 |
+| 外部协议 JSON+newline，内部 RPC 用 Protobuf | 外部协议稳定可读，内部服务间通信高效；协议边界显式分层 |
 
-```text
-04_BridgeIM/
-├── CMakeLists.txt
-├── cmake/                 # CMake dependency/protobuf/model target modules
-├── compose.yaml           # Redis + Nginx local dependency stack
-├── docker/                # Nginx / Redis configuration
-├── docs/                  # Public demo and architecture roadmap
-├── include/               # Public headers
-├── proto/                 # Protobuf service definitions
-├── scripts/               # Build, demo, DB bootstrap, and checks
-├── src/                   # Client, gateway, common libraries, RPC services
-├── test/                  # Standalone learning/smoke programs
-└── third_party/mprpc      # mprpc git submodule
+## 快速开始 · Quick Start
+
+**依赖**
+
+```
+g++, cmake >= 3.16, libmysqlclient-dev, libhiredis-dev,
+libboost-dev, protobuf, zookeeper_mt, Muduo, Docker / Docker Compose
 ```
 
-Generated/local artifacts are intentionally ignored:
-
-- `build/`
-- `bin/`
-- `logs/`
-- `.env`
-- `.codegraph/`
-- `.vscode/`
-
-## Prerequisites
-
-Recommended local dependencies:
-
-- `g++`
-- `cmake >= 3.16`
-- `default-libmysqlclient-dev`
-- `libhiredis-dev`
-- `libboost-dev`
-- `libboost-test-dev`
-- protobuf development libraries
-- ZooKeeper C client development library (`zookeeper_mt`)
-- Muduo, recommended under `/usr/local`
-- Docker / Docker Compose
-
-If Muduo is installed outside `/usr/local`, configure with:
-
-```bash
-export MUDUO_ROOT=/path/to/muduo
-```
-
-## Dependency Services
-
-BridgeIM expects these runtime dependencies:
-
-| Dependency | Source | Default |
-| --- | --- | --- |
-| MySQL | shared external container | `mysql_db`, `127.0.0.1:3306` |
-| Redis | root `compose.yaml` | `127.0.0.1:6379` |
-| Nginx | root `compose.yaml` | `127.0.0.1:8000` |
-| ZooKeeper | `third_party/mprpc/compose.yaml` | `mprpc-zookeeper`, `127.0.0.1:2181` |
-
-Root `compose.yaml` intentionally starts only BridgeIM's local dependency stack (`redis` and `nginx`). ZooKeeper is provided by the vendored mprpc compose file, and MySQL is shared as `mysql_db`.
-
-## First-Time Setup
-
-Clone with submodules:
+**构建**
 
 ```bash
 git clone --recursive <repo-url>
-cd 04_BridgeIM
-```
-
-If the repository was cloned without `--recursive`:
-
-```bash
-git submodule update --init --recursive
-```
-
-Prepare environment variables:
-
-```bash
-cp .env.example .env
-# Edit .env if your MySQL/Redis/ZooKeeper settings differ from the defaults.
-```
-
-Bootstrap the shared MySQL database if needed:
-
-```bash
-MYSQL_ROOT_PASSWORD=<root-password> ./scripts/db/bootstrap-mysql.sh
-```
-
-In this local Claude/WSL environment, run shell commands through `rtk`:
-
-```bash
-MYSQL_ROOT_PASSWORD=<root-password> rtk ./scripts/db/bootstrap-mysql.sh
-```
-
-## Build
-
-Use the canonical build script:
-
-```bash
+cd BridgeIM
 ./scripts/build/all.sh
 ```
 
-In this local Claude/WSL environment:
+产物：`bin/ChatServer`、`bin/ChatClient`、`bin/FriendService`、`bin/OfflineMessageService`
+
+**首次初始化**
 
 ```bash
-rtk ./scripts/build/all.sh
+cp .env.example .env            # 按需修改 MySQL/Redis/ZooKeeper 连接参数
+MYSQL_ROOT_PASSWORD=<root-password> ./scripts/db/bootstrap-mysql.sh
 ```
 
-The build script will:
-
-1. prepare `build/`
-2. initialize/build vendored mprpc into `third_party/mprpc/dist` when needed
-3. configure CMake
-4. build all targets
-
-Main outputs:
-
-- `bin/ChatClient`
-- `bin/ChatServer`
-- `bin/FriendService`
-- `bin/OfflineMessageService`
-
-## Demo
-
-Start the multi-process demo stack:
+**一键运行 Demo**
 
 ```bash
 ./scripts/demo/bridgeim-demo.sh
 ```
 
-In this local Claude/WSL environment:
+脚本自动拉起依赖服务、两个 RPC 服务进程和两个 ChatServer 节点，并打印客户端连接命令。详见 [docs/demo.md](docs/demo.md)。
 
-```bash
-rtk ./scripts/demo/bridgeim-demo.sh
-```
-
-The demo script builds the project, starts dependency services as needed, launches both RPC services and two ChatServer nodes, then prints the client commands to run manually.
-
-Detailed walkthrough: [docs/demo.md](docs/demo.md)
-
-## Manual Run
-
-Start Redis and Nginx:
-
-```bash
-docker compose up -d redis nginx
-```
-
-Start ZooKeeper for mprpc if it is not already running:
-
-```bash
-docker compose -f third_party/mprpc/compose.yaml up -d
-```
-
-Load `.env` before starting backend processes:
-
-```bash
-set -a
-source .env
-set +a
-```
-
-Start RPC services with distinct ports:
-
-```bash
-RPC_PORT=7000 MPRPC_LOG_NAME=offline-message-rpc ./bin/OfflineMessageService
-RPC_PORT=7001 MPRPC_LOG_NAME=friend-service-rpc ./bin/FriendService
-```
-
-Start two ChatServer nodes:
-
-```bash
-./bin/ChatServer 0.0.0.0 6000
-./bin/ChatServer 0.0.0.0 6002
-```
-
-Run the client through the cluster entry:
-
-```bash
-./bin/ChatClient 127.0.0.1 8000
-```
-
-Or connect directly to a specific node for debugging:
-
-```bash
-./bin/ChatClient 127.0.0.1 6000
-./bin/ChatClient 127.0.0.1 6002
-```
-
-`ChatServer` should bind `0.0.0.0` when used behind Docker Nginx, because Nginx forwards from inside a container to the host.
-
-## Checks
-
-Run the offline-message RPC failure-handling check:
-
-```bash
-./scripts/checks/rpc-failure-handling.sh
-```
-
-Build from a clean output state:
-
-```bash
-rm -rf build bin logs
-./scripts/build/all.sh
-```
-
-## Troubleshooting
-
-### `this account is using`
-
-A user may be left as `online` after an abnormal server exit. Reset states with:
-
-```bash
-docker exec -it mysql_db mysql -uchatserver_app -pchatserver_dev_password -D chatserver \
-  -e "UPDATE User SET state='offline' WHERE state='online'; SELECT id,name,state FROM User;"
-```
-
-### mprpc not found
-
-Ensure the submodule is initialized:
-
-```bash
-git submodule update --init --recursive
-```
-
-Then rebuild:
-
-```bash
-./scripts/build/all.sh
-```
-
-CMake resolves mprpc in this order:
-
-1. `-DMPRPC_ROOT=/path/to/mprpc`
-2. environment variable `MPRPC_ROOT`
-3. vendored build output `third_party/mprpc/dist`
-4. sibling project `../03_rpc_framework/dist/mprpc`
-
-### ZooKeeper not reachable
-
-Start the mprpc dependency stack:
-
-```bash
-docker compose -f third_party/mprpc/compose.yaml up -d
-```
-
-Expected container:
+## 目录结构 · Project Layout
 
 ```text
-mprpc-zookeeper -> 127.0.0.1:2181
+./
+├── CMakeLists.txt
+├── cmake/                 # CMake 依赖、Protobuf、模型目标模块
+├── compose.yaml           # Redis + Nginx 本地依赖栈
+├── docker/                # Nginx / Redis 配置
+├── docs/                  # Demo 演示文档与架构路线图
+├── include/               # 公共头文件
+├── proto/                 # Protobuf 服务定义
+├── scripts/               # 构建、演示、DB 初始化和检查脚本
+├── src/                   # 客户端、网关、公共库、RPC 服务
+├── test/                  # 独立测试程序
+└── third_party/mprpc      # mprpc git submodule
 ```
 
-## Architecture Roadmap
+生成物不入库：`build/`、`bin/`、`logs/`、`.env`
 
-BridgeIM 1.0 deliberately keeps live TCP connection ownership inside `ChatServer` while selected data domains are split behind internal RPC services. Full distributed presence/message routing is future work because live socket ownership, gateway-node routing, stale session cleanup, and durable retry semantics require a larger distributed-systems design.
+## 演进路线 · Roadmap
 
-See [docs/architecture-roadmap.md](docs/architecture-roadmap.md).
+本项目有意分阶段推进：**先稳定单体网关与公共基础设施，再把边界清晰的业务域拆到 RPC 之后**。好友域与离线消息域已完成拆分；用户域、群组域是下一步自然的拆分对象。
+
+完整分布式 IM 的真正难点不在「多拆几个服务」，而在 **presence 与消息路由**——live socket 连接无法经 RPC 搬运，需要 `user → 网关节点` 的在线表、节点健康检查、异常下线清理与跨网关路由契约。这属于更大的分布式系统设计，1.0 有意止步于此，把 live 连接所有权保留在 ChatServer 这一当前最合适的位置。
+
+详见 [docs/architecture-roadmap.md](docs/architecture-roadmap.md)。

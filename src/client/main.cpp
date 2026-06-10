@@ -146,6 +146,13 @@ int main(int argc, char **argv) {
     std::cin >> choice_Str;
     std::cin.get(); // 消费掉输入choice后留下的换行符
 
+    if (!std::cin) {
+      // stdin 关闭（Ctrl-D / 管道输入结束）：干净退出客户端，
+      // 否则首页菜单会空转刷 "invalid input!"
+      close(clientfd);
+      break;
+    }
+
     // 检查用户输入
     if (choice_Str.empty() || choice_Str.length() > 1) {
       std::cerr << "invalid input!\n";
@@ -529,6 +536,12 @@ void mainMenu(int clientfd) {
   char buffer[1024] = {0};
   while (isMainMenuRuning) {
     std::cin.getline(buffer, 1024);
+    if (!std::cin) {
+      // stdin 关闭（Ctrl-D / 管道输入结束）：干净退出聊天菜单，
+      // 否则 getline 会持续失败并空转刷 "invalid input command!"
+      isMainMenuRuning = false;
+      break;
+    }
     std::string commandbuf(buffer);
     std::string command; // 存储命令
     int idx = commandbuf.find(":");
